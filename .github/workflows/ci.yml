@@ -67,7 +67,7 @@ jobs:
           retention-days: 1
 
   build-release-extension:
-    uses: Dolly132/ci-workflows/.github/workflows/shared_build_release_am_extension.yml@v1
+    uses: Dolly132/ci-workflows/.github/workflows/shared_build_release_am_extension.yml@main
     needs: build-libuv
     with:
       sdks: "sdk2013"
