@@ -25,9 +25,16 @@ for sdk_name in Extension.sdks:
       binary.compiler.linkflags += ['ws2_32.lib']
 
     libuv_root = os.path.join(Extension.ext_root, 'libuv')
-    binary.compiler.cxxincludes += [
-      os.path.join(libuv_root, 'include'),
-    ]
+    
+    if os.path.exists(os.path.join(libuv_root, 'include')):
+        binary.compiler.cxxincludes += [
+            os.path.join(libuv_root, 'include'),
+        ]
+        if cxx.target.arch in ['x86'] and cxx.target.platform in ['linux']:
+            binary.compiler.linkflags += [os.path.join(libuv_root, '.libs', 'libuv.a')]
+    else:
+        if cxx.target.arch in ['x86'] and cxx.target.platform in ['linux']:
+            binary.compiler.linkflags += ['-luv']
 
     # TODO: add proper linux support for x64
     if cxx.target.arch in ['x86'] and cxx.target.platform in ['linux']:
