@@ -26,6 +26,9 @@ CAsyncSocketContext::~CAsyncSocketContext()
 	if(m_pHost)
 		free(m_pHost);
 
+	if(m_pClientIP)
+		free(m_pClientIP);
+
 	if(m_pConnectCallback)
 		forwards->ReleaseForward(m_pConnectCallback);
 

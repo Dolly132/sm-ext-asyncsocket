@@ -28,6 +28,8 @@ methodmap AsyncSocket < Handle {
 	public native bool SetErrorCallback(AsyncSocketErrorCallback callback);
 
 	public native bool SetDataCallback(AsyncSocketDataCallback callback);
+
+	public native void GetClientIP(char[] buffer, int length);
 }
 
 /**

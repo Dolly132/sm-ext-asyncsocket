@@ -20,6 +20,8 @@ public:
 	char *m_pHost;
 	int m_Port;
 
+	char *m_pClientIP;
+
 	IChangeableForward *m_pConnectCallback;
 	IChangeableForward *m_pErrorCallback;
 	IChangeableForward *m_pDataCallback;

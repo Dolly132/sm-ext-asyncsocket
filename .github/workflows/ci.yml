@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - main
+      - dolly
     tags:
       - "*"
   pull_request:
@@ -14,7 +15,7 @@ on:
 
 jobs:
   build-libuv:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     env:
       LIBUV_REF: 'v1.44.2'
       CC: "clang-14"
@@ -65,7 +66,7 @@ jobs:
           retention-days: 1
 
   build-release-extension:
-    uses: srcdslab/ci-workflows/.github/workflows/shared_build_release_am_extension.yml@v1
+    uses: Dolly132/ci-workflows/.github/workflows/shared_build_release_am_extension.yml@v1
     needs: build-libuv
     with:
       sdks: "sdk2013"
