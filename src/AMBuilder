@@ -12,7 +12,7 @@ project.sources += [
 # Locate libuv root directory
 libuv_root = os.path.join(Extension.ext_root, 'libuv')
 
-# Fallback if artifact was extracted without the 'libuv' wrapper
+# Fallback if artifact contents were extracted directly into Extension.ext_root
 if not os.path.exists(os.path.join(libuv_root, 'include')):
   libuv_root = Extension.ext_root
 
@@ -31,27 +31,37 @@ for sdk_name in Extension.sdks:
         project, builder, cxx, projectName + '.ext', sdk
     )
 
-    # Always add the main include folder where uv.h lives
+    # Add the include folder where uv.h (and uv/win.h) lives
     if os.path.exists(libuv_inc):
       binary.compiler.cxxincludes += [libuv_inc]
 
+    # Platform-specific linking
     if cxx.target.platform == 'windows':
-      binary.compiler.linkflags += ['ws2_32.lib', 'iphlpapi.lib', 'userenv.lib', 'dbghelp.lib']
-      
-      # Link static libuv library on Windows MSVC
+      # Windows system dependencies required by libuv
+      binary.compiler.linkflags += [
+          'ws2_32.lib',
+          'iphlpapi.lib',
+          'userenv.lib',
+          'dbghelp.lib',
+      ]
+
+      # Resolve static libuv.lib location (cmake install standard vs manual output)
       libuv_win_lib = os.path.join(libuv_root, 'lib', 'libuv.lib')
       if not os.path.exists(libuv_win_lib):
         libuv_win_lib = os.path.join(libuv_root, 'Release', 'libuv.lib')
-      
+
       if os.path.exists(libuv_win_lib):
         binary.compiler.linkflags += [libuv_win_lib]
+      else:
+        binary.compiler.linkflags += ['libuv.lib']
 
     elif cxx.target.platform == 'linux':
       if cxx.target.arch == 'x86':
+        # Resolve static libuv.a location (autotools install standard vs .libs)
         libuv_linux_lib = os.path.join(libuv_root, 'lib', 'libuv.a')
         if not os.path.exists(libuv_linux_lib):
           libuv_linux_lib = os.path.join(libuv_root, '.libs', 'libuv.a')
-        
+
         if os.path.exists(libuv_linux_lib):
           binary.compiler.linkflags += [libuv_linux_lib]
         else:

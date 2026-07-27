@@ -13,7 +13,7 @@ on:
       - main
 
 jobs:
-  build-libuv:
+  build-libuv-linux:
     runs-on: ubuntu-24.04
     env:
       LIBUV_REF: 'v1.44.2'
@@ -21,8 +21,6 @@ jobs:
       CXX: "clang++-14"
     steps:
       - name: Install Linux dependencies
-        shell: bash
-        if: startsWith(runner.os, 'Linux')
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update
@@ -31,43 +29,59 @@ jobs:
             libc6-dev libc6-dev-i386 linux-libc-dev \
             linux-libc-dev:i386 lib32z1-dev ${{ env.CC }}
 
-      - name: Select compiler
-        shell: bash
-        if: startsWith(runner.os, 'Linux')
-        run: |
-          echo "CC=${{ env.CC }}" >> $GITHUB_ENV
-          echo "CXX=${{ env.CXX }}" >> $GITHUB_ENV
-          ${{ env.CC }} --version
-          ${{ env.CXX }} --version
-
       - name: Checkout libuv
         uses: actions/checkout@v4
         with:
           repository: libuv/libuv
           ref: ${{ env.LIBUV_REF }}
           path: libuv
-          submodules: recursive
 
-      - name: Build and install libuv
+      - name: Build and install libuv (Linux x86)
         working-directory: libuv
         run: |
           bash autogen.sh
           ./configure --prefix="$(pwd)/dist" --build=i686-pc-linux-gnu "CFLAGS=-m32" "CXXFLAGS=-m32" "LDFLAGS=-m32" --disable-shared --enable-static
-          make -j 8
+          make -j8
           make install
 
-      - name: Upload libuv
+      - name: Upload libuv Linux Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: libuv
-          include-hidden-files: true
+          name: libuv-linux
           path: libuv/dist
-          if-no-files-found: error
+          retention-days: 1
+
+  build-libuv-windows:
+    runs-on: windows-2022
+    env:
+      LIBUV_REF: 'v1.44.2'
+    steps:
+      - name: Checkout libuv
+        uses: actions/checkout@v4
+        with:
+          repository: libuv/libuv
+          ref: ${{ env.LIBUV_REF }}
+          path: libuv
+
+      - name: Build and install libuv (Windows x86)
+        shell: cmd
+        working-directory: libuv
+        run: |
+          mkdir build
+          cd build
+          cmake .. -A Win32 -DBUILD_TESTING=OFF -DLIBUV_BUILD_SHARED=OFF -DCMAKE_INSTALL_PREFIX=..\dist
+          cmake --build . --config Release --target install
+
+      - name: Upload libuv Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libuv-windows
+          path: libuv/dist
           retention-days: 1
 
   build-release-extension:
     uses: srcdslab/ci-workflows/.github/workflows/shared_build_release_am_extension.yml@v1
-    needs: build-libuv
+    needs: [build-libuv-linux, build-libuv-windows]
     with:
       sdks: "sdk2013"
       artifact-path: "."
