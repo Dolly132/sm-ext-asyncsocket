@@ -360,11 +360,11 @@ void UV_OnNewConnection(uv_stream_t *server, int status)
 			{
 				if (name.ss_family == AF_INET) 
 				{
-					uv_ip4_name((struct sockaddr_in *)&name, pConnect->pClientIP, MAX_IP_BUFFER_LENGTH);
+					uv_ip4_name((const struct sockaddr_in *)&name, pConnect->pClientIP, MAX_IP_BUFFER_LENGTH);
 				} 
 				else if (name.ss_family == AF_INET6) 
 				{
-					uv_ip6_name((struct sockaddr_in *)&name, pConnect->pClientIP, MAX_IP_BUFFER_LENGTH);
+					uv_ip6_name((const struct sockaddr_in6 *)&name, pConnect->pClientIP, MAX_IP_BUFFER_LENGTH);
 				}
 			}
 		}
