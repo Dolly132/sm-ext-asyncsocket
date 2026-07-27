@@ -356,15 +356,15 @@ void UV_OnNewConnection(uv_stream_t *server, int status)
 			pConnect->pClientIP[0] = '\0';
 			struct sockaddr_storage name;
 			int namelen = sizeof(name);
-			if (uv_tcp_getpeername(pClientSocket, (struct sockaddr*)&name, &namelen) == 0) 
+			if (uv_tcp_getpeername(pClientSocket, (struct sockaddr *)&name, &namelen) == 0) 
 			{
 				if (name.ss_family == AF_INET) 
 				{
-					uv_ip4_name((struct sockaddr_in*)&name, pConnect->pClientIP, MAX_IP_BUFFER_LENGTH);
+					uv_ip4_name((struct sockaddr_in *)&name, pConnect->pClientIP, MAX_IP_BUFFER_LENGTH);
 				} 
 				else if (name.ss_family == AF_INET6) 
 				{
-					uv_ip6_name((struct sockaddr_in*)&name, pConnect->pClientIP, MAX_IP_BUFFER_LENGTH);
+					uv_ip6_name((struct sockaddr_in *)&name, pConnect->pClientIP, MAX_IP_BUFFER_LENGTH);
 				}
 			}
 		}

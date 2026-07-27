@@ -8,6 +8,8 @@ CAsyncSocketContext::CAsyncSocketContext(IPluginContext *pContext)
 	m_pHost = NULL;
 	m_Port = -1;
 
+	m_pClientIP = NULL;
+
 	m_Deleted = false;
 	m_PendingCallback = false;
 	m_Pending = false;
