@@ -7,8 +7,16 @@ project = builder.LibraryProject(projectName)
 project.sources += [
   os.path.join(Extension.ext_root, 'src', 'extension.cpp'),
   os.path.join(Extension.ext_root, 'src', 'context.cpp'),
-  os.path.join(Extension.sm_root, 'public', 'smsdk_ext.cpp')
+  os.path.join(Extension.sm_root, 'public', 'smsdk_ext.cpp'),
 ]
+
+# Determine where include and lib directories reside
+libuv_inc = os.path.join(Extension.ext_root, 'libuv', 'include')
+libuv_lib = os.path.join(Extension.ext_root, 'libuv', 'lib', 'libuv.a')
+
+if not os.path.exists(libuv_inc):
+  libuv_inc = os.path.join(Extension.ext_root, 'include')
+  libuv_lib = os.path.join(Extension.ext_root, 'lib', 'libuv.a')
 
 for sdk_name in Extension.sdks:
   sdk = Extension.sdks[sdk_name]
@@ -19,23 +27,22 @@ for sdk_name in Extension.sdks:
     if not cxx.target.arch in sdk['platforms'][cxx.target.platform]:
       continue
 
-    binary = Extension.HL2ExtConfig(project, builder, cxx, projectName + '.ext', sdk)
+    binary = Extension.HL2ExtConfig(
+        project, builder, cxx, projectName + '.ext', sdk
+    )
 
     if cxx.target.platform == 'windows':
       binary.compiler.linkflags += ['ws2_32.lib']
 
-    libuv_root = os.path.join(Extension.ext_root, 'libuv')
-    binary.compiler.cxxincludes += [
-      os.path.join(libuv_root, 'include'),
-    ]
+    if os.path.exists(libuv_inc):
+      binary.compiler.cxxincludes += [libuv_inc]
+      if cxx.target.arch == 'x86' and cxx.target.platform == 'linux':
+        binary.compiler.linkflags += [libuv_lib]
+    else:
+      if cxx.target.arch == 'x86' and cxx.target.platform == 'linux':
+        binary.compiler.linkflags += ['-luv']
 
-    # TODO: add proper linux support for x64
-    if cxx.target.arch in ['x86'] and cxx.target.platform in ['linux']:
-      binary.compiler.linkflags += [
-        os.path.join(libuv_root, '.libs', 'libuv.a'),
-      ]
-    # TODO: add proper windows support for libuv
-    if cxx.target.platform in ['windows']:
+    if cxx.target.platform == 'windows':
       binary.compiler.linkflags += ['/FORCE:UNRESOLVED']
 
 Extension.extensions += builder.Add(project)
