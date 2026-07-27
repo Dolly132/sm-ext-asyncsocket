@@ -48,7 +48,7 @@ jobs:
           path: libuv
           submodules: recursive
 
-      - name: Build libuv
+      - name: Build and install libuv
         working-directory: libuv
         run: |
           bash autogen.sh
@@ -61,7 +61,7 @@ jobs:
         with:
           name: libuv
           include-hidden-files: true
-          path: libuv/dist/*
+          path: libuv/dist
           if-no-files-found: error
           retention-days: 1
 
