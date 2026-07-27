@@ -58,6 +58,7 @@ struct CSocketConnect
 {
 	CAsyncSocketContext *pSocketContext;
 	uv_stream_t *pClientSocket;
+	char *pClientIP;
 };
 
 struct CSocketData
