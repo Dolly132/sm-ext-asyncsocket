@@ -9,7 +9,7 @@ project.sources += [
     os.path.join(Extension.sm_root, 'public', 'smsdk_ext.cpp'),
 ]
 
-# Include path from submodule
+# Include header path directly from submodule
 libuv_inc = os.path.join(Extension.ext_root, 'libuv', 'include')
 libuv_root = os.path.join(Extension.ext_root, 'libuv')
 
@@ -36,9 +36,10 @@ for sdk_name in Extension.sdks:
                 'iphlpapi.lib',
                 'userenv.lib',
                 'dbghelp.lib',
+                'synchronization.lib',  # Fixes WaitOnAddress / WakeByAddressSingle
             ]
 
-            # Candidate paths where download-artifact might unpack libuv.lib
+            # Candidates where actions/download-artifact might unpack libuv.lib
             win_candidates = [
                 os.path.join(libuv_root, 'dist', 'lib', 'libuv.lib'),
                 os.path.join(libuv_root, 'dist', 'libuv-windows', 'lib', 'libuv.lib'),
@@ -59,7 +60,7 @@ for sdk_name in Extension.sdks:
 
         elif cxx.target.platform == 'linux':
             if cxx.target.arch == 'x86':
-                # Candidate paths where download-artifact might unpack libuv.a
+                # Candidates where actions/download-artifact might unpack libuv.a
                 linux_candidates = [
                     os.path.join(libuv_root, 'dist', 'lib', 'libuv.a'),
                     os.path.join(libuv_root, 'dist', 'libuv-linux', 'lib', 'libuv.a'),

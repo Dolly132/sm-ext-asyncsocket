@@ -63,7 +63,7 @@ jobs:
         run: |
           mkdir build
           cd build
-          cmake .. -A Win32 -DBUILD_TESTING=OFF -DLIBUV_BUILD_SHARED=OFF -DCMAKE_INSTALL_PREFIX=..\dist
+          cmake .. -A Win32 -DBUILD_TESTING=OFF -DLIBUV_BUILD_SHARED=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>" -DCMAKE_INSTALL_PREFIX=..\dist
           cmake --build . --config Release --target install
 
       - name: Upload libuv Windows Artifact
