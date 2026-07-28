@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - main
+      - dolly-2-test
     tags:
       - "*"
   pull_request:
