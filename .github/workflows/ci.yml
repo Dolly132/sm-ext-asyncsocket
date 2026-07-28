@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - main
+      - dolly-2-test
     tags:
       - "*"
   pull_request:
@@ -79,9 +80,36 @@ jobs:
           path: libuv/dist
           retention-days: 1
 
+  # Intermediate job to assemble libuv dist headers & libs into the repo prior to shared build
+  prepare-deps:
+    runs-on: ubuntu-latest
+    needs: [build-libuv-linux, build-libuv-windows]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Linux libuv
+        uses: actions/download-artifact@v4
+        with:
+          name: libuv-linux
+          path: libuv
+
+      - name: Download Windows libuv
+        uses: actions/download-artifact@v4
+        with:
+          name: libuv-windows
+          path: libuv
+
+      - name: Upload merged workspace artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-with-deps
+          path: .
+          retention-days: 1
+
   build-release-extension:
     uses: srcdslab/ci-workflows/.github/workflows/shared_build_release_am_extension.yml@v1
-    needs: [build-libuv-linux, build-libuv-windows]
+    needs: [prepare-deps]
     with:
       sdks: "sdk2013"
       artifact-path: "."
