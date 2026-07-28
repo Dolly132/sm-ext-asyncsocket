@@ -1,41 +1,82 @@
-# vim: set sts=2 ts=8 sw=2 tw=99 et ft=python:
 import os
 
 projectName = 'AsyncSocket'
 
 project = builder.LibraryProject(projectName)
 project.sources += [
-  os.path.join(Extension.ext_root, 'src', 'extension.cpp'),
-  os.path.join(Extension.ext_root, 'src', 'context.cpp'),
-  os.path.join(Extension.sm_root, 'public', 'smsdk_ext.cpp')
+    os.path.join(Extension.ext_root, 'src', 'extension.cpp'),
+    os.path.join(Extension.ext_root, 'src', 'context.cpp'),
+    os.path.join(Extension.sm_root, 'public', 'smsdk_ext.cpp'),
 ]
 
+# Include header path directly from submodule
+libuv_inc = os.path.join(Extension.ext_root, 'libuv', 'include')
+libuv_root = os.path.join(Extension.ext_root, 'libuv')
+
 for sdk_name in Extension.sdks:
-  sdk = Extension.sdks[sdk_name]
-  if sdk['name'] in ['mock']:
-    continue
+    sdk = Extension.sdks[sdk_name]
+    if sdk['name'] in ['mock']:
+        continue
 
-  for cxx in builder.targets:
-    if not cxx.target.arch in sdk['platforms'][cxx.target.platform]:
-      continue
+    for cxx in builder.targets:
+        if not cxx.target.arch in sdk['platforms'][cxx.target.platform]:
+            continue
 
-    binary = Extension.HL2ExtConfig(project, builder, cxx, projectName + '.ext', sdk)
+        binary = Extension.HL2ExtConfig(
+            project, builder, cxx, projectName + '.ext', sdk
+        )
 
-    if cxx.target.platform == 'windows':
-      binary.compiler.linkflags += ['ws2_32.lib']
+        # Include uv.h path
+        binary.compiler.cxxincludes += [libuv_inc]
 
-    libuv_root = os.path.join(Extension.ext_root, 'libuv')
-    binary.compiler.cxxincludes += [
-      os.path.join(libuv_root, 'include'),
-    ]
+        # Platform-specific linking
+        if cxx.target.platform == 'windows':
+            binary.compiler.linkflags += [
+                'ws2_32.lib',
+                'iphlpapi.lib',
+                'userenv.lib',
+                'dbghelp.lib',
+                'synchronization.lib',  # Fixes WaitOnAddress / WakeByAddressSingle
+            ]
 
-    # TODO: add proper linux support for x64
-    if cxx.target.arch in ['x86'] and cxx.target.platform in ['linux']:
-      binary.compiler.linkflags += [
-        os.path.join(libuv_root, '.libs', 'libuv.a'),
-      ]
-    # TODO: add proper windows support for libuv
-    if cxx.target.platform in ['windows']:
-      binary.compiler.linkflags += ['/FORCE:UNRESOLVED']
+            # Candidates where actions/download-artifact might unpack libuv.lib
+            win_candidates = [
+                os.path.join(libuv_root, 'dist', 'lib', 'libuv.lib'),
+                os.path.join(libuv_root, 'dist', 'libuv-windows', 'lib', 'libuv.lib'),
+                os.path.join(libuv_root, 'dist', 'Release', 'libuv.lib'),
+                os.path.join(Extension.ext_root, 'libuv.lib'),
+            ]
+
+            found_win_lib = None
+            for cand in win_candidates:
+                if os.path.exists(cand):
+                    found_win_lib = cand
+                    break
+
+            if found_win_lib:
+                binary.compiler.linkflags += [found_win_lib]
+            else:
+                binary.compiler.linkflags += ['libuv.lib']
+
+        elif cxx.target.platform == 'linux':
+            if cxx.target.arch == 'x86':
+                # Candidates where actions/download-artifact might unpack libuv.a
+                linux_candidates = [
+                    os.path.join(libuv_root, 'dist', 'lib', 'libuv.a'),
+                    os.path.join(libuv_root, 'dist', 'libuv-linux', 'lib', 'libuv.a'),
+                    os.path.join(libuv_root, 'dist', '.libs', 'libuv.a'),
+                    os.path.join(Extension.ext_root, 'libuv.a'),
+                ]
+
+                found_linux_lib = None
+                for cand in linux_candidates:
+                    if os.path.exists(cand):
+                        found_linux_lib = cand
+                        break
+
+                if found_linux_lib:
+                    binary.compiler.linkflags += [found_linux_lib]
+                else:
+                    binary.compiler.linkflags += ['-luv']
 
 Extension.extensions += builder.Add(project)

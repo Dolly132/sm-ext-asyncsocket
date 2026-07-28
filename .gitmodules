@@ -1,3 +1,6 @@
 [submodule "sm-ext-common"]
 	path = sm-ext-common
 	url = https://github.com/srcdslab/sm-ext-common
+[submodule "libuv"]
+	path = libuv
+	url = https://github.com/libuv/libuv.git
