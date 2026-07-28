@@ -9,22 +9,9 @@ project.sources += [
     os.path.join(Extension.sm_root, 'public', 'smsdk_ext.cpp'),
 ]
 
-# Check possible libuv locations
-candidates = [
-    os.path.join(Extension.ext_root, 'libuv'),
-    Extension.ext_root
-]
-
-libuv_root = None
-for candidate in candidates:
-    if os.path.exists(os.path.join(candidate, 'include', 'uv.h')):
-        libuv_root = candidate
-        break
-
-if libuv_root:
-    libuv_inc = os.path.join(libuv_root, 'include')
-else:
-    libuv_inc = os.path.join(Extension.ext_root, 'include')
+# Include path pointing directly to the submodule's include directory
+libuv_inc = os.path.join(Extension.ext_root, 'libuv', 'include')
+libuv_root = os.path.join(Extension.ext_root, 'libuv')
 
 for sdk_name in Extension.sdks:
     sdk = Extension.sdks[sdk_name]
@@ -39,10 +26,10 @@ for sdk_name in Extension.sdks:
             project, builder, cxx, projectName + '.ext', sdk
         )
 
-        # Include path for uv.h
+        # Pass header include path
         binary.compiler.cxxincludes += [libuv_inc]
 
-        # Linking configuration
+        # Platform-specific static linking
         if cxx.target.platform == 'windows':
             binary.compiler.linkflags += [
                 'ws2_32.lib',
@@ -51,7 +38,11 @@ for sdk_name in Extension.sdks:
                 'dbghelp.lib',
             ]
 
-            libuv_win_lib = os.path.join(libuv_root, 'lib', 'libuv.lib') if libuv_root else ''
+            # Locate compiled Windows static library
+            libuv_win_lib = os.path.join(libuv_root, 'dist', 'lib', 'libuv.lib')
+            if not os.path.exists(libuv_win_lib):
+                libuv_win_lib = os.path.join(libuv_root, 'dist', 'Release', 'libuv.lib')
+
             if os.path.exists(libuv_win_lib):
                 binary.compiler.linkflags += [libuv_win_lib]
             else:
@@ -59,7 +50,11 @@ for sdk_name in Extension.sdks:
 
         elif cxx.target.platform == 'linux':
             if cxx.target.arch == 'x86':
-                libuv_linux_lib = os.path.join(libuv_root, 'lib', 'libuv.a') if libuv_root else ''
+                # Locate compiled Linux static library
+                libuv_linux_lib = os.path.join(libuv_root, 'dist', 'lib', 'libuv.a')
+                if not os.path.exists(libuv_linux_lib):
+                    libuv_linux_lib = os.path.join(libuv_root, 'dist', '.libs', 'libuv.a')
+
                 if os.path.exists(libuv_linux_lib):
                     binary.compiler.linkflags += [libuv_linux_lib]
                 else:

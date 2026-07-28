@@ -17,10 +17,14 @@ jobs:
   build-libuv-linux:
     runs-on: ubuntu-24.04
     env:
-      LIBUV_REF: 'v1.44.2'
       CC: "clang-14"
       CXX: "clang++-14"
     steps:
+      - name: Checkout repository with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
       - name: Install Linux dependencies
         run: |
           sudo dpkg --add-architecture i386
@@ -29,13 +33,6 @@ jobs:
             gcc-multilib g++-multilib libstdc++6 lib32stdc++6 \
             libc6-dev libc6-dev-i386 linux-libc-dev \
             linux-libc-dev:i386 lib32z1-dev ${{ env.CC }}
-
-      - name: Checkout libuv
-        uses: actions/checkout@v4
-        with:
-          repository: libuv/libuv
-          ref: ${{ env.LIBUV_REF }}
-          path: libuv
 
       - name: Build and install libuv (Linux x86)
         working-directory: libuv
@@ -54,15 +51,11 @@ jobs:
 
   build-libuv-windows:
     runs-on: windows-2022
-    env:
-      LIBUV_REF: 'v1.44.2'
     steps:
-      - name: Checkout libuv
+      - name: Checkout repository with submodules
         uses: actions/checkout@v4
         with:
-          repository: libuv/libuv
-          ref: ${{ env.LIBUV_REF }}
-          path: libuv
+          submodules: recursive
 
       - name: Build and install libuv (Windows x86)
         shell: cmd
@@ -80,36 +73,9 @@ jobs:
           path: libuv/dist
           retention-days: 1
 
-  # Intermediate job to assemble libuv dist headers & libs into the repo prior to shared build
-  prepare-deps:
-    runs-on: ubuntu-latest
-    needs: [build-libuv-linux, build-libuv-windows]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download Linux libuv
-        uses: actions/download-artifact@v4
-        with:
-          name: libuv-linux
-          path: libuv
-
-      - name: Download Windows libuv
-        uses: actions/download-artifact@v4
-        with:
-          name: libuv-windows
-          path: libuv
-
-      - name: Upload merged workspace artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: source-with-deps
-          path: .
-          retention-days: 1
-
   build-release-extension:
     uses: srcdslab/ci-workflows/.github/workflows/shared_build_release_am_extension.yml@v1
-    needs: [prepare-deps]
+    needs: [build-libuv-linux, build-libuv-windows]
     with:
       sdks: "sdk2013"
       artifact-path: "."
