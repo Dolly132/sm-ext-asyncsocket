@@ -646,19 +646,17 @@ cell_t Native_AsyncSocket_SetDataCallback(IPluginContext *pContext, const cell_t
 
 cell_t Native_AsyncSocket_GetClientIP(IPluginContext *pContext, const cell_t *params)
 {
-    CAsyncSocketContext *pSocketContext = g_AsyncSocket.GetSocketInstanceByHandle(params[1]);
+	CAsyncSocketContext *pSocketContext = g_AsyncSocket.GetSocketInstanceByHandle(params[1]);
 
-    if (pSocketContext == NULL)
-    {
-        return pContext->ThrowNativeError("Invalid socket handle");
-    }
+	if (pSocketContext == NULL)
+	{
+		return pContext->ThrowNativeError("Invalid socket handle");
+	}
 
-    if (pSocketContext->m_pClientIP)
-    {
-        pContext->StringToLocal(params[2], params[3], pSocketContext->m_pClientIP);
-    }
+	const char *ip = (pSocketContext->m_pClientIP != NULL) ? pSocketContext->m_pClientIP : "";
+	pContext->StringToLocal(params[2], params[3], ip);
 
-    return 1;
+	return 1;
 }
 
 // Sourcemod Plugin Events
