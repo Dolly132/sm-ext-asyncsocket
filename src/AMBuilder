@@ -9,7 +9,7 @@ project.sources += [
     os.path.join(Extension.sm_root, 'public', 'smsdk_ext.cpp'),
 ]
 
-# Include path pointing directly to the submodule's include directory
+# 1. Header path from submodule
 libuv_inc = os.path.join(Extension.ext_root, 'libuv', 'include')
 libuv_root = os.path.join(Extension.ext_root, 'libuv')
 
@@ -29,7 +29,7 @@ for sdk_name in Extension.sdks:
         # Pass header include path
         binary.compiler.cxxincludes += [libuv_inc]
 
-        # Platform-specific static linking
+        # 2. Platform-specific static linking
         if cxx.target.platform == 'windows':
             binary.compiler.linkflags += [
                 'ws2_32.lib',
@@ -38,7 +38,7 @@ for sdk_name in Extension.sdks:
                 'dbghelp.lib',
             ]
 
-            # Locate compiled Windows static library
+            # Look for compiled static library from artifact-path (libuv/dist)
             libuv_win_lib = os.path.join(libuv_root, 'dist', 'lib', 'libuv.lib')
             if not os.path.exists(libuv_win_lib):
                 libuv_win_lib = os.path.join(libuv_root, 'dist', 'Release', 'libuv.lib')
@@ -50,7 +50,6 @@ for sdk_name in Extension.sdks:
 
         elif cxx.target.platform == 'linux':
             if cxx.target.arch == 'x86':
-                # Locate compiled Linux static library
                 libuv_linux_lib = os.path.join(libuv_root, 'dist', 'lib', 'libuv.a')
                 if not os.path.exists(libuv_linux_lib):
                     libuv_linux_lib = os.path.join(libuv_root, 'dist', '.libs', 'libuv.a')

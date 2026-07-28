@@ -5,7 +5,6 @@ on:
     branches:
       - master
       - main
-      - dolly-2-test
     tags:
       - "*"
   pull_request:
@@ -74,8 +73,9 @@ jobs:
           retention-days: 1
 
   build-release-extension:
-    uses: srcdslab/ci-workflows/.github/workflows/shared_build_release_am_extension.yml@v1
+    uses: Dolly132/ci-workflows/.github/workflows/shared_build_release_am_extension.yml@main
     needs: [build-libuv-linux, build-libuv-windows]
     with:
       sdks: "sdk2013"
-      artifact-path: "."
+      artifact-path: "libuv/dist"
+      submodules: "recursive"
