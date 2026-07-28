@@ -109,16 +109,16 @@ void OnGameFrame(bool simulating)
 
 			if (pConnect->pClientIP)
             {
-                pSocketContext->m_pClientIP = pConnect->pClientIP;
-            }
-            else
-            {
-                pSocketContext->m_pClientIP = (char *)malloc(MAX_IP_BUFFER_LENGTH);
-                if (pSocketContext->m_pClientIP)
-                {
-                    pSocketContext->m_pClientIP[0] = '\0';
-                }
-            }
+ 				pSocketContext->m_pClientIP = pConnect->pClientIP;
+ 			}
+ 			else
+ 			{
+ 				pSocketContext->m_pClientIP = (char *)malloc(MAX_IP_BUFFER_LENGTH);
+ 				if (pSocketContext->m_pClientIP)
+ 				{
+ 					pSocketContext->m_pClientIP[0] = '\0';
+ 				}
+ 			}
 
 			pConnect->pSocketContext->OnConnect(pSocketContext);
 
@@ -305,6 +305,7 @@ void UV_OnConnect(uv_connect_t *req, int status)
 	CSocketConnect *pConnect = (CSocketConnect *)malloc(sizeof(CSocketConnect));
 	pConnect->pSocketContext = pSocketContext;
 	pConnect->pClientSocket = pSocketContext->m_pStream;
+	pConnect->pClientIP = NULL;
 	g_ConnectQueue.enqueue(pConnect);
 
 	uv_read_start(pSocketContext->m_pStream, UV_AllocBuffer, UV_OnRead);

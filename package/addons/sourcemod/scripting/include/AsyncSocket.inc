@@ -61,5 +61,6 @@ public __ext_AsyncSocket_SetNTVOptional()
 	MarkNativeAsOptional("AsyncSocket.SetConnectCallback");
 	MarkNativeAsOptional("AsyncSocket.SetErrorCallback");
 	MarkNativeAsOptional("AsyncSocket.SetDataCallback");
+	MarkNativeAsOptional("AsyncSocket.GetClientIP");
 }
 #endif
