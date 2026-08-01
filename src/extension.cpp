@@ -39,6 +39,8 @@
  * @brief Implement extension code here.
  */
 
+#define MAX_IP_BUFFER_LENGTH 64
+
 moodycamel::ReaderWriterQueue<CSocketConnect *> g_ConnectQueue;
 moodycamel::ReaderWriterQueue<CSocketError *> g_ErrorQueue;
 moodycamel::ReaderWriterQueue<CSocketData *> g_DataQueue;
@@ -105,6 +107,19 @@ void OnGameFrame(bool simulating)
 			pSocketContext->m_pStream = pConnect->pClientSocket;
 			pSocketContext->m_pStream->data = pSocketContext;
 
+			if (pConnect->pClientIP)
+            {
+ 				pSocketContext->m_pClientIP = pConnect->pClientIP;
+ 			}
+ 			else
+ 			{
+ 				pSocketContext->m_pClientIP = (char *)malloc(MAX_IP_BUFFER_LENGTH);
+ 				if (pSocketContext->m_pClientIP)
+ 				{
+ 					pSocketContext->m_pClientIP[0] = '\0';
+ 				}
+ 			}
+
 			pConnect->pSocketContext->OnConnect(pSocketContext);
 
 			if(!pSocketContext->m_Deleted)
@@ -119,6 +134,10 @@ void OnGameFrame(bool simulating)
 		}
 		else
 		{
+			if (pConnect->pClientIP)
+            {
+                pConnect->pSocketContext->m_pClientIP = pConnect->pClientIP;
+            }
 			pConnect->pSocketContext->Connected();
 		}
 
@@ -200,6 +219,12 @@ void UV_DeleteAsyncContext(uv_async_t *pHandle)
 		pSocketContext->m_pSocket = NULL;
 	}
 
+	if (pSocketContext->m_pClientIP)
+    {
+        free(pSocketContext->m_pClientIP);
+        pSocketContext->m_pClientIP = NULL;
+    }
+
 	delete pSocketContext;
 }
 
@@ -280,6 +305,7 @@ void UV_OnConnect(uv_connect_t *req, int status)
 	CSocketConnect *pConnect = (CSocketConnect *)malloc(sizeof(CSocketConnect));
 	pConnect->pSocketContext = pSocketContext;
 	pConnect->pClientSocket = pSocketContext->m_pStream;
+	pConnect->pClientIP = NULL;
 	g_ConnectQueue.enqueue(pConnect);
 
 	uv_read_start(pSocketContext->m_pStream, UV_AllocBuffer, UV_OnRead);
@@ -324,6 +350,26 @@ void UV_OnNewConnection(uv_stream_t *server, int status)
 		CSocketConnect *pConnect = (CSocketConnect *)malloc(sizeof(CSocketConnect));
 		pConnect->pSocketContext = pSocketContext;
 		pConnect->pClientSocket = (uv_stream_t *)pClientSocket;
+
+		pConnect->pClientIP = (char *)malloc(MAX_IP_BUFFER_LENGTH);
+		if (pConnect->pClientIP)
+		{
+			pConnect->pClientIP[0] = '\0';
+			struct sockaddr_storage name;
+			int namelen = sizeof(name);
+			if (uv_tcp_getpeername(pClientSocket, (struct sockaddr *)&name, &namelen) == 0) 
+			{
+				if (name.ss_family == AF_INET) 
+				{
+					uv_ip4_name((const struct sockaddr_in *)&name, pConnect->pClientIP, MAX_IP_BUFFER_LENGTH);
+				} 
+				else if (name.ss_family == AF_INET6) 
+				{
+					uv_ip6_name((const struct sockaddr_in6 *)&name, pConnect->pClientIP, MAX_IP_BUFFER_LENGTH);
+				}
+			}
+		}
+
 		g_ConnectQueue.enqueue(pConnect);
 	}
 	else
@@ -599,6 +645,21 @@ cell_t Native_AsyncSocket_SetDataCallback(IPluginContext *pContext, const cell_t
 	return true;
 }
 
+cell_t Native_AsyncSocket_GetClientIP(IPluginContext *pContext, const cell_t *params)
+{
+	CAsyncSocketContext *pSocketContext = g_AsyncSocket.GetSocketInstanceByHandle(params[1]);
+
+	if (pSocketContext == NULL)
+	{
+		return pContext->ThrowNativeError("Invalid socket handle");
+	}
+
+	const char *ip = (pSocketContext->m_pClientIP != NULL) ? pSocketContext->m_pClientIP : "";
+	pContext->StringToLocal(params[2], params[3], ip);
+
+	return 1;
+}
+
 // Sourcemod Plugin Events
 bool AsyncSocket::SDK_OnLoad(char *error, size_t maxlength, bool late)
 {
@@ -656,5 +717,6 @@ const sp_nativeinfo_t AsyncSocketNatives[] = {
 	{"AsyncSocket.SetConnectCallback", Native_AsyncSocket_SetConnectCallback},
 	{"AsyncSocket.SetErrorCallback", Native_AsyncSocket_SetErrorCallback},
 	{"AsyncSocket.SetDataCallback", Native_AsyncSocket_SetDataCallback},
+	{"AsyncSocket.GetClientIP", Native_AsyncSocket_GetClientIP},
 	{NULL, NULL}
 };
