@@ -334,82 +334,87 @@ void UV_OnNewConnection(uv_stream_t *server, int status)
 
 void UV_OnAsyncResolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo *res)
 {
-	if(resolver->service != NULL)
-		free(resolver->service);
+    CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)resolver->data;
+    if(pSocketContext->m_Deleted || pSocketContext->m_pSocket)
+    {
+        if (res)
+            uv_freeaddrinfo(res);
+        return;
+    }
 
-	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)resolver->data;
-	if(pSocketContext->m_Deleted || pSocketContext->m_pSocket)
-	{
-		uv_freeaddrinfo(res);
-		return;
-	}
+    if(status < 0)
+    {
+        pSocketContext->m_Pending = false;
+        if (res)
+            uv_freeaddrinfo(res);
+        UV_PushError(pSocketContext, status);
+        return;
+    }
 
-	if(status < 0)
-	{
-		pSocketContext->m_Pending = false;
-		uv_freeaddrinfo(res);
-		UV_PushError(pSocketContext, status);
-		return;
-	}
+    uv_tcp_t *pSocket = (uv_tcp_t *)malloc(sizeof(uv_tcp_t));
+    uv_tcp_init(g_UV_Loop, pSocket);
+    pSocket->close_cb = UV_FreeHandle;
+    pSocket->data = pSocketContext;
 
-	uv_tcp_t *pSocket = (uv_tcp_t *)malloc(sizeof(uv_tcp_t));
-	uv_tcp_init(g_UV_Loop, pSocket);
-	pSocket->close_cb = UV_FreeHandle;
-	pSocket->data = pSocketContext;
+    pSocketContext->m_pSocket = pSocket;
+    pSocketContext->m_Pending = false;
 
-	pSocketContext->m_pSocket = pSocket;
-	pSocketContext->m_Pending = false;
+    if(pSocketContext->m_Server)
+    {
+        int bind_err = uv_tcp_bind(pSocket, (const struct sockaddr *)res->ai_addr, 0);
+        if(bind_err)
+        {
+            uv_close((uv_handle_t *)pSocket, pSocket->close_cb);
+            pSocketContext->m_pSocket = NULL;
+            UV_PushError(pSocketContext, bind_err);
+            uv_freeaddrinfo(res);
+            return;
+        }
 
-	if(pSocketContext->m_Server)
-	{
-		uv_tcp_bind(pSocket, (const struct sockaddr *)res->ai_addr, 0);
+        int err = uv_listen((uv_stream_t *)pSocket, 32, UV_OnNewConnection);
+        if(err)
+        {
+            uv_close((uv_handle_t *)pSocket, pSocket->close_cb);
+            pSocketContext->m_pSocket = NULL;
+            UV_PushError(pSocketContext, err);
+        }
+    }
+    else
+    {
+        uv_connect_t *pConnectReq = (uv_connect_t *)malloc(sizeof(uv_connect_t));
+        pConnectReq->data = pSocketContext;
 
-		int err = uv_listen((uv_stream_t *)pSocket, 32, UV_OnNewConnection);
-		if(err)
-		{
-			uv_close((uv_handle_t *)pSocket, pSocket->close_cb);
-			pSocketContext->m_pSocket = NULL;
-			UV_PushError(pSocketContext, err);
-		}
-	}
-	else
-	{
-		uv_connect_t *pConnectReq = (uv_connect_t *)malloc(sizeof(uv_connect_t));
-		pConnectReq->data = pSocketContext;
+        uv_tcp_connect(pConnectReq, pSocket, (const struct sockaddr *)res->ai_addr, UV_OnConnect);
+    }
 
-		uv_tcp_connect(pConnectReq, pSocket, (const struct sockaddr *)res->ai_addr, UV_OnConnect);
-	}
-
-	uv_freeaddrinfo(res);
+    uv_freeaddrinfo(res);
 }
 
 void UV_OnAsyncResolve(uv_async_t *pHandle)
 {
-	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)pHandle->data;
-	uv_close((uv_handle_t *)pHandle, pHandle->close_cb);
+    CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)pHandle->data;
+    uv_close((uv_handle_t *)pHandle, pHandle->close_cb);
 
-	if(pSocketContext->m_Deleted || pSocketContext->m_pSocket)
-		return;
+    if(pSocketContext->m_Deleted || pSocketContext->m_pSocket)
+        return;
 
-	pSocketContext->m_Resolver.data = pSocketContext;
+    pSocketContext->m_Resolver.data = pSocketContext;
 
-	char *service = (char *)malloc(8);
-	sprintf(service, "%d", pSocketContext->m_Port);
+    char service[16];
+    snprintf(service, sizeof(service), "%d", pSocketContext->m_Port);
 
-	struct addrinfo hints;
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = PF_INET;
-	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_protocol = IPPROTO_TCP;
-	hints.ai_flags = 0;
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = PF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    hints.ai_flags = 0;
 
-	int err = uv_getaddrinfo(g_UV_Loop, &pSocketContext->m_Resolver, UV_OnAsyncResolved, pSocketContext->m_pHost, service, &hints);
-	if(err)
-	{
-		if(service != NULL)
-			free(service);
-		UV_PushError(pSocketContext, err);
-	}
+    int err = uv_getaddrinfo(g_UV_Loop, &pSocketContext->m_Resolver, UV_OnAsyncResolved, pSocketContext->m_pHost, service, &hints);
+    if(err)
+    {
+        UV_PushError(pSocketContext, err);
+    }
 }
 
 void UV_OnAsyncWriteCleanup(uv_write_t *req, int status)
