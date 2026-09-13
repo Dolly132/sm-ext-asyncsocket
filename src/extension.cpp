@@ -565,12 +565,14 @@ cell_t Native_AsyncSocket_SetConnectCallback(IPluginContext *pContext, const cel
 {
 	CAsyncSocketContext *pSocketContext = g_AsyncSocket.GetSocketInstanceByHandle(params[1]);
 
+/*
 	if(pSocketContext == NULL)
 		return pContext->ThrowNativeError("Invalid socket handle");
 
 	if(!pSocketContext->SetConnectCallback(params[2]))
 		return pContext->ThrowNativeError("Invalid callback");
 
+*/
 	return true;
 }
 
@@ -578,12 +580,13 @@ cell_t Native_AsyncSocket_SetErrorCallback(IPluginContext *pContext, const cell_
 {
 	CAsyncSocketContext *pSocketContext = g_AsyncSocket.GetSocketInstanceByHandle(params[1]);
 
+/*
 	if(pSocketContext == NULL)
 		return pContext->ThrowNativeError("Invalid socket handle");
 
 	if(!pSocketContext->SetErrorCallback(params[2]))
 		return pContext->ThrowNativeError("Invalid callback");
-
+*/
 	return true;
 }
 
