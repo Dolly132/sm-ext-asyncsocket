@@ -1,6 +1,9 @@
 #include "extension.h"
 #include "context.h"
 
+const ParamType g_ErrorCbTypes[] 	= {Param_Cell, Param_Cell, Param_String};
+const ParamType g_ConnectCbTypes[] 	= {Param_Cell};
+
 CAsyncSocketContext::CAsyncSocketContext(IPluginContext *pContext)
 {
 	m_pContext = pContext;
@@ -89,8 +92,7 @@ bool CAsyncSocketContext::SetConnectCallback(funcid_t function)
 	if(m_pConnectCallback)
 		forwards->ReleaseForward(m_pConnectCallback);
 
-	const ParamType types[] = {Param_Cell};
-	m_pConnectCallback = forwards->CreateForwardEx(NULL, ET_Single, 1, types);
+	m_pConnectCallback = forwards->CreateForwardEx(NULL, ET_Single, 1, g_ConnectCbTypes);
 	return m_pConnectCallback->AddFunction(m_pContext, function);
 }
 
@@ -99,8 +101,7 @@ bool CAsyncSocketContext::SetErrorCallback(funcid_t function)
 	if(m_pErrorCallback)
 		forwards->ReleaseForward(m_pErrorCallback);
 
-	const ParamType types[] = { Param_Cell, Param_Cell, Param_String };
-	m_pErrorCallback = forwards->CreateForwardEx(NULL, ET_Single, 3, types);
+	m_pErrorCallback = forwards->CreateForwardEx(NULL, ET_Single, 3, g_ErrorCbTypes);
 	return m_pErrorCallback->AddFunction(m_pContext, function);
 }
 
