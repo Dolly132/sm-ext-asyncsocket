@@ -93,7 +93,7 @@ bool CAsyncSocketContext::SetConnectCallback(funcid_t function)
 		forwards->ReleaseForward(m_pConnectCallback);
 
 	m_pConnectCallback = forwards->CreateForwardEx(NULL, ET_Single, 1, g_ConnectCbTypes);
-	return m_pConnectCallback->AddFunction(m_pContext, function);
+	return m_pConnectCallback->AddFunction(function);
 }
 
 bool CAsyncSocketContext::SetErrorCallback(funcid_t function)
@@ -102,7 +102,7 @@ bool CAsyncSocketContext::SetErrorCallback(funcid_t function)
 		forwards->ReleaseForward(m_pErrorCallback);
 
 	m_pErrorCallback = forwards->CreateForwardEx(NULL, ET_Single, 3, g_ErrorCbTypes);
-	return m_pErrorCallback->AddFunction(m_pContext, function);
+	return m_pErrorCallback->AddFunction(function);
 }
 
 bool CAsyncSocketContext::SetDataCallback(funcid_t function)
@@ -111,5 +111,5 @@ bool CAsyncSocketContext::SetDataCallback(funcid_t function)
 		forwards->ReleaseForward(m_pDataCallback);
 
 	m_pDataCallback = forwards->CreateForwardEx(NULL, ET_Single, 3, NULL, Param_Cell, Param_String, Param_Cell);
-	return m_pDataCallback->AddFunction(m_pContext, function);
+	return m_pDataCallback->AddFunction(function);
 }
