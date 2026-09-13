@@ -1,9 +1,6 @@
 #include "extension.h"
 #include "context.h"
 
-const ParamType g_ErrorCbTypes[] 	= {Param_Cell, Param_Cell, Param_String};
-const ParamType g_ConnectCbTypes[] 	= {Param_Cell};
-
 CAsyncSocketContext::CAsyncSocketContext(IPluginContext *pContext)
 {
 	m_pContext = pContext;
@@ -28,15 +25,6 @@ CAsyncSocketContext::~CAsyncSocketContext()
 {
 	if(m_pHost)
 		free(m_pHost);
-
-	if(m_pConnectCallback)
-		forwards->ReleaseForward(m_pConnectCallback);
-
-	if(m_pErrorCallback)
-		forwards->ReleaseForward(m_pErrorCallback);
-
-	if(m_pDataCallback)
-		forwards->ReleaseForward(m_pDataCallback);
 
 	m_Deleted = true;
 }
@@ -89,11 +77,8 @@ void CAsyncSocketContext::OnData(char* data, ssize_t size)
 
 bool CAsyncSocketContext::SetConnectCallback(funcid_t function)
 {
-	if(m_pConnectCallback)
-		forwards->ReleaseForward(m_pConnectCallback);
-
-	m_pConnectCallback = forwards->CreateForwardEx(NULL, ET_Single, 1, g_ConnectCbTypes);
-	return m_pConnectCallback->AddFunction(function);
+	m_pConnectCallback = m_pContext->GetFunctionById(function);
+	return m_pConnectCallback ? true : false;
 }
 
 bool CAsyncSocketContext::SetErrorCallback(funcid_t function)
@@ -101,15 +86,12 @@ bool CAsyncSocketContext::SetErrorCallback(funcid_t function)
 	if(m_pErrorCallback)
 		forwards->ReleaseForward(m_pErrorCallback);
 
-	m_pErrorCallback = forwards->CreateForwardEx(NULL, ET_Single, 3, g_ErrorCbTypes);
-	return m_pErrorCallback->AddFunction(function);
+	m_pErrorCallback = m_pContext->GetFunctionById(function);
+	return m_pErrorCallback ? true : false;
 }
 
 bool CAsyncSocketContext::SetDataCallback(funcid_t function)
 {
-	if(m_pDataCallback)
-		forwards->ReleaseForward(m_pDataCallback);
-
-	m_pDataCallback = forwards->CreateForwardEx(NULL, ET_Single, 3, NULL, Param_Cell, Param_String, Param_Cell);
-	return m_pDataCallback->AddFunction(function);
+	m_pDataCallback = m_pContext->GetFunctionById(function);
+	return m_pDataCallback ? true : false;
 }
