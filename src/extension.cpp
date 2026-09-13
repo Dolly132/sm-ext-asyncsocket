@@ -181,7 +181,10 @@ void UV_OnAsyncAdded(uv_async_t *pHandle)
 
 void UV_FreeHandle(uv_handle_t *handle)
 {
-	free(handle);
+    if (handle)
+    {
+        free(handle);
+    }
 }
 
 void UV_AllocBuffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf)
