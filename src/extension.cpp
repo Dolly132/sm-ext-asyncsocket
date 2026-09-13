@@ -137,16 +137,20 @@ void OnGameFrame(bool simulating)
     }
 
     CSocketData *pData;
-    while(g_DataQueue.try_dequeue(pData))
-    {
-        if(!pData->pSocketContext->m_Deleted)
-        {
-            pData->pSocketContext->OnData(pData->pBuffer, pData->BufferSize);
-        }
+    while (g_DataQueue.try_dequeue(pData))
+	{
+		if (pData->pSocketContext &&
+			!pData->pSocketContext->m_Deleted)
+		{
+			pData->pSocketContext->OnData(
+				pData->pBuffer,
+				pData->BufferSize
+			);
+		}
 
-        free(pData->pBuffer);
-        free(pData);
-    }
+		free(pData->pBuffer);
+		free(pData);
+	}
 
     CSocketError *pError;
     while(g_ErrorQueue.try_dequeue(pError))
@@ -204,23 +208,34 @@ void UV_Quit(uv_async_t *pHandle)
 
 void UV_DeleteAsyncContext(uv_async_t *pHandle)
 {
-	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)pHandle->data;
-	uv_close((uv_handle_t *)pHandle, pHandle->close_cb);
+    CAsyncSocketContext *pSocketContext =
+        (CAsyncSocketContext *)pHandle->data;
 
-	if(pSocketContext->m_pStream)
-	{
-		uv_close((uv_handle_t *)pSocketContext->m_pStream, pSocketContext->m_pStream->close_cb);
-		pSocketContext->m_pStream = NULL;
-		pSocketContext->m_pSocket = NULL;
-	}
+    uv_close((uv_handle_t *)pHandle, pHandle->close_cb);
 
-	if(pSocketContext->m_pSocket)
-	{
-		uv_close((uv_handle_t *)pSocketContext->m_pSocket, pSocketContext->m_pSocket->close_cb);
-		pSocketContext->m_pSocket = NULL;
-	}
+    if (pSocketContext->m_pStream)
+    {
+        uv_close(
+            (uv_handle_t *)pSocketContext->m_pStream,
+            pSocketContext->m_pStream->close_cb
+        );
 
-	delete pSocketContext;
+        pSocketContext->m_pStream = NULL;
+        pSocketContext->m_pSocket = NULL;
+    }
+
+    if (pSocketContext->m_pSocket)
+    {
+        uv_close(
+            (uv_handle_t *)pSocketContext->m_pSocket,
+            pSocketContext->m_pSocket->close_cb
+        );
+
+        pSocketContext->m_pSocket = NULL;
+    }
+
+    // TEMPORARY DEBUG:
+    // delete pSocketContext;
 }
 
 void UV_PushError(CAsyncSocketContext *pSocketContext, int error)
@@ -236,54 +251,68 @@ void UV_PushError(CAsyncSocketContext *pSocketContext, int error)
 
 void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
 {
-    CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)client->data;
-    
+    CAsyncSocketContext *pSocketContext =
+        (CAsyncSocketContext *)client->data;
+
     if (!pSocketContext || pSocketContext->m_Deleted)
     {
         if (buf && buf->base)
             free(buf->base);
+
         return;
     }
 
     if (nread < 0)
     {
         if (buf && buf->base)
-        {
             free(buf->base);
-        }
-        UV_PushError(pSocketContext, nread);
+
+        pSocketContext->m_PendingCallback = true;
+        UV_PushError(pSocketContext, (int)nread);
+
         return;
     }
 
     if (nread == 0)
     {
         if (buf && buf->base)
-        {
             free(buf->base);
-        }
+
         return;
     }
 
-    char *data = (char *)malloc(nread + 1);
+    char *data = (char *)malloc((size_t)nread + 1);
+
     if (!data)
     {
         if (buf && buf->base)
             free(buf->base);
+
         return;
     }
 
-    memcpy(data, buf->base, nread);
+    memcpy(data, buf->base, (size_t)nread);
     data[nread] = '\0';
 
     if (buf && buf->base)
-    {
         free(buf->base);
-    }
 
-    CSocketData *pData = (CSocketData *)malloc(sizeof(CSocketData));
+    CSocketData *pData =
+        (CSocketData *)malloc(sizeof(CSocketData));
+
     if (!pData)
     {
         free(data);
+        return;
+    }
+
+    /*
+     * Do NOT queue data for a context that has been deleted.
+     */
+    if (pSocketContext->m_Deleted)
+    {
+        free(data);
+        free(pData);
         return;
     }
 
