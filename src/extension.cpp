@@ -233,42 +233,36 @@ void UV_PushError(CAsyncSocketContext *pSocketContext, int error)
 
 void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
 {
-	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)client->data;
-	if(pSocketContext->m_Deleted)
-	{
-		free(buf->base);
-		uv_close((uv_handle_t *)client, client->close_cb);
-		pSocketContext->m_pStream = NULL;
-		pSocketContext->m_pSocket = NULL;
-		return;
-	}
+    CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)client->data;
 
-	if(nread < 0)
-	{
-		// Connection closed
-		free(buf->base);
-		// But let the client disconnect.
-		//uv_close((uv_handle_t *)client, client->close_cb);
-		//pSocketContext->m_pStream = NULL;
-		//pSocketContext->m_pSocket = NULL;
+    if(nread < 0)
+    {
+        if (buf->base)
+            free(buf->base);
+        UV_PushError(pSocketContext, nread);
+        return;
+    }
 
-		UV_PushError(pSocketContext, nread);
-		return;
-	}
+    if(nread == 0)
+    {
+        if (buf->base)
+            free(buf->base);
+        return;
+    }
 
-	pSocketContext->m_PendingCallback = true;
+    // Copy data safely before freeing the libuv buffer block
+    char *data = (char *)malloc(nread + 1);
+    memcpy(data, buf->base, nread);
+    data[nread] = '\0';
 
-	char *data = (char *)malloc(sizeof(char) * (nread + 1));
-	data[nread] = 0;
-	strncpy(data, buf->base, nread);
-	free(buf->base);
+    free(buf->base); // Free the buffer allocated by UV_AllocBuffer in the same module
 
-	CSocketData *pData = (CSocketData *)malloc(sizeof(CSocketData));
-	pData->pSocketContext = pSocketContext;
-	pData->pBuffer = data;
-	pData->BufferSize = nread;
+    CSocketData *pData = (CSocketData *)malloc(sizeof(CSocketData));
+    pData->pSocketContext = pSocketContext;
+    pData->pBuffer = data;
+    pData->BufferSize = nread;
 
-	g_DataQueue.enqueue(pData);
+    g_DataQueue.enqueue(pData);
 }
 
 void UV_OnConnect(uv_connect_t *req, int status)
