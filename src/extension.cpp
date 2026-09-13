@@ -234,30 +234,56 @@ void UV_PushError(CAsyncSocketContext *pSocketContext, int error)
 void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
 {
     CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)client->data;
-
-    if(nread < 0)
+    
+    if (!pSocketContext || pSocketContext->m_Deleted)
     {
-        if (buf->base)
+        if (buf && buf->base)
             free(buf->base);
+        return;
+    }
+
+    if (nread < 0)
+    {
+        if (buf && buf->base)
+        {
+            free(buf->base);
+        }
         UV_PushError(pSocketContext, nread);
         return;
     }
 
-    if(nread == 0)
+    if (nread == 0)
     {
-        if (buf->base)
+        if (buf && buf->base)
+        {
+            free(buf->base);
+        }
+        return;
+    }
+
+    char *data = (char *)malloc(nread + 1);
+    if (!data)
+    {
+        if (buf && buf->base)
             free(buf->base);
         return;
     }
 
-    // Copy data safely before freeing the libuv buffer block
-    char *data = (char *)malloc(nread + 1);
     memcpy(data, buf->base, nread);
     data[nread] = '\0';
 
-    free(buf->base); // Free the buffer allocated by UV_AllocBuffer in the same module
+    if (buf && buf->base)
+    {
+        free(buf->base);
+    }
 
     CSocketData *pData = (CSocketData *)malloc(sizeof(CSocketData));
+    if (!pData)
+    {
+        free(data);
+        return;
+    }
+
     pData->pSocketContext = pSocketContext;
     pData->pBuffer = data;
     pData->BufferSize = nread;
