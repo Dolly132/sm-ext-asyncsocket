@@ -397,6 +397,7 @@ void UV_OnAsyncResolve(uv_async_t *pHandle)
 	sprintf(service, "%d", pSocketContext->m_Port);
 
 	struct addrinfo hints;
+	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = PF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
