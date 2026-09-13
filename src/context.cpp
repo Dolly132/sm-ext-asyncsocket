@@ -89,7 +89,7 @@ bool CAsyncSocketContext::SetConnectCallback(funcid_t function)
 	if(m_pConnectCallback)
 		forwards->ReleaseForward(m_pConnectCallback);
 
-	ParamType types[] = {Param_Cell};
+	const ParamType types[] = {Param_Cell};
 	m_pConnectCallback = forwards->CreateForwardEx(NULL, ET_Single, 1, types);
 	return m_pConnectCallback->AddFunction(m_pContext, function);
 }
@@ -99,7 +99,7 @@ bool CAsyncSocketContext::SetErrorCallback(funcid_t function)
 	if(m_pErrorCallback)
 		forwards->ReleaseForward(m_pErrorCallback);
 
-	ParamType types[] = { Param_Cell, Param_Cell, Param_String };
+	const ParamType types[] = { Param_Cell, Param_Cell, Param_String };
 	m_pErrorCallback = forwards->CreateForwardEx(NULL, ET_Single, 3, types);
 	return m_pErrorCallback->AddFunction(m_pContext, function);
 }
