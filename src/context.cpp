@@ -83,9 +83,6 @@ bool CAsyncSocketContext::SetConnectCallback(funcid_t function)
 
 bool CAsyncSocketContext::SetErrorCallback(funcid_t function)
 {
-	if(m_pErrorCallback)
-		forwards->ReleaseForward(m_pErrorCallback);
-
 	m_pErrorCallback = m_pContext->GetFunctionById(function);
 	return m_pErrorCallback ? true : false;
 }
