@@ -72,75 +72,92 @@ void AsyncSocket::OnHandleDestroy(HandleType_t type, void *object)
 {
 	if(object != NULL)
 	{
-		CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)object;
-		pSocketContext->m_Deleted = true;
+        CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)object;
+        pSocketContext->m_Deleted = true;
 
-		if(g_Running && (pSocketContext->m_pSocket || pSocketContext->m_pStream || pSocketContext->m_PendingCallback))
+		if(g_Running)
 		{
-			CAsyncAddJob Job;
-			Job.CallbackFn = UV_DeleteAsyncContext;
-			Job.pData = pSocketContext;
-			g_AsyncAddQueue.enqueue(Job);
+            CAsyncAddJob Job;
+            Job.CallbackFn = UV_DeleteAsyncContext;
+            Job.pData = pSocketContext;
+            g_AsyncAddQueue.enqueue(Job);
 
-			uv_async_send(&g_UV_AsyncAdded);
-		}
-		else
-		{
-			delete pSocketContext;
-		}
-	}
+            uv_async_send(&g_UV_AsyncAdded);
+        }
+        else
+        {
+            delete pSocketContext;
+        }
+    }
 }
 
 void OnGameFrame(bool simulating)
 {
-	CSocketConnect *pConnect;
-	while(g_ConnectQueue.try_dequeue(pConnect))
-	{
-		if(pConnect->pSocketContext->m_Server)
-		{
-			CAsyncSocketContext *pSocketContext = new CAsyncSocketContext(pConnect->pSocketContext->m_pContext);
-			pSocketContext->m_Handle = handlesys->CreateHandle(g_AsyncSocket.socketHandleType, pSocketContext,
-				pConnect->pSocketContext->m_pContext->GetIdentity(), myself->GetIdentity(), NULL);
+    CSocketConnect *pConnect;
+    while(g_ConnectQueue.try_dequeue(pConnect))
+    {
+        if(!pConnect->pSocketContext->m_Deleted)
+        {
+            if(pConnect->pSocketContext->m_Server)
+            {
+                CAsyncSocketContext *pSocketContext = new CAsyncSocketContext(pConnect->pSocketContext->m_pContext);
+                pSocketContext->m_Handle = handlesys->CreateHandle(g_AsyncSocket.socketHandleType, pSocketContext,
+                    pConnect->pSocketContext->m_pContext->GetIdentity(), myself->GetIdentity(), NULL);
 
-			pSocketContext->m_pStream = pConnect->pClientSocket;
-			pSocketContext->m_pStream->data = pSocketContext;
+                pSocketContext->m_pStream = pConnect->pClientSocket;
+                pSocketContext->m_pStream->data = pSocketContext;
 
-			pConnect->pSocketContext->OnConnect(pSocketContext);
+                pConnect->pSocketContext->OnConnect(pSocketContext);
 
-			if(!pSocketContext->m_Deleted)
-			{
-				CAsyncAddJob Job;
-				Job.CallbackFn = UV_StartRead;
-				Job.pData = pSocketContext;
-				g_AsyncAddQueue.enqueue(Job);
+                if(!pSocketContext->m_Deleted)
+                {
+                    CAsyncAddJob Job;
+                    Job.CallbackFn = UV_StartRead;
+                    Job.pData = pSocketContext;
+                    g_AsyncAddQueue.enqueue(Job);
 
-				uv_async_send(&g_UV_AsyncAdded);
-			}
-		}
-		else
-		{
-			pConnect->pSocketContext->Connected();
-		}
+                    uv_async_send(&g_UV_AsyncAdded);
+                }
+            }
+            else
+            {
+                pConnect->pSocketContext->Connected();
+            }
+        }
+        else
+        {
+            // If the parent socket was deleted while connecting, clean up the orphaned client socket
+            if(pConnect->pClientSocket)
+            {
+                uv_close((uv_handle_t *)pConnect->pClientSocket, UV_FreeHandle);
+            }
+        }
 
-		free(pConnect);
-	}
+        free(pConnect);
+    }
 
-	CSocketData *pData;
-	while(g_DataQueue.try_dequeue(pData))
-	{
-		pData->pSocketContext->OnData(pData->pBuffer, pData->BufferSize);
+    CSocketData *pData;
+    while(g_DataQueue.try_dequeue(pData))
+    {
+        if(!pData->pSocketContext->m_Deleted)
+        {
+            pData->pSocketContext->OnData(pData->pBuffer, pData->BufferSize);
+        }
 
-		free(pData->pBuffer);
-		free(pData);
-	}
+        free(pData->pBuffer);
+        free(pData);
+    }
 
-	CSocketError *pError;
-	while(g_ErrorQueue.try_dequeue(pError))
-	{
-		pError->pSocketContext->OnError(pError->Error);
+    CSocketError *pError;
+    while(g_ErrorQueue.try_dequeue(pError))
+    {
+        if(!pError->pSocketContext->m_Deleted)
+        {
+            pError->pSocketContext->OnError(pError->Error);
+        }
 
-		free(pError);
-	}
+        free(pError);
+    }
 }
 
 // main event loop thread
