@@ -58,7 +58,7 @@ void CAsyncSocketContext::OnConnect(CAsyncSocketContext *pSocketContext)
 	}
 
     m_pConnectCallback->PushCell(pSocketContext->m_Handle);
-    //m_pConnectCallback->Execute(NULL);
+    m_pConnectCallback->Execute(NULL);
 }
 
 void CAsyncSocketContext::OnError(int error)
@@ -72,7 +72,7 @@ void CAsyncSocketContext::OnError(int error)
 	m_pErrorCallback->PushCell(m_Handle);
 	m_pErrorCallback->PushCell(error);
 	m_pErrorCallback->PushString(uv_err_name(error));
-	//m_pErrorCallback->Execute(NULL);
+	m_pErrorCallback->Execute(NULL);
 }
 
 void CAsyncSocketContext::OnData(char* data, ssize_t size)
@@ -86,7 +86,7 @@ void CAsyncSocketContext::OnData(char* data, ssize_t size)
 	m_pDataCallback->PushCell(m_Handle);
 	m_pDataCallback->PushString(data);
 	m_pDataCallback->PushCell(size);
-	//m_pDataCallback->Execute(NULL);
+	m_pDataCallback->Execute(NULL);
 }
 
 bool CAsyncSocketContext::SetConnectCallback(funcid_t function)
