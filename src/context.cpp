@@ -93,7 +93,7 @@ void CAsyncSocketContext::OnData(char* data, ssize_t size)
 bool CAsyncSocketContext::SetConnectCallback(funcid_t function)
 {
     if (!m_pConnectForward)
-        m_pConnectForward = forwards->CreateForwardEx(NULL, ET_Ignore, 1, NULL, Param_Cell);
+        m_pConnectForward = forwards->CreateForwardEx(NULL, ET_Ignore, 1, g_ConnectCbParams);
 
     IPluginFunction *fn = m_pContext->GetFunctionById(function);
     if (!fn)
@@ -105,7 +105,7 @@ bool CAsyncSocketContext::SetConnectCallback(funcid_t function)
 bool CAsyncSocketContext::SetErrorCallback(funcid_t function)
 {
     if (!m_pErrorCallback)
-        m_pErrorCallback = forwards->CreateForwardEx(NULL, ET_Ignore, 1, NULL, Param_Cell);
+        m_pErrorCallback = forwards->CreateForwardEx(NULL, ET_Ignore, 3, g_ErrorCbParams);
 
     IPluginFunction *fn = m_pContext->GetFunctionById(function);
     if (!fn)
@@ -117,7 +117,7 @@ bool CAsyncSocketContext::SetErrorCallback(funcid_t function)
 bool CAsyncSocketContext::SetDataCallback(funcid_t function)
 {
 	if (!m_pDataCallback)
-        m_pDataCallback = forwards->CreateForwardEx(NULL, ET_Ignore, 1, NULL, Param_Cell);
+        m_pDataCallback = forwards->CreateForwardEx(NULL, ET_Ignore, 3, g_DataCbParams);
 
     IPluginFunction *fn = m_pContext->GetFunctionById(function);
     if (!fn)
