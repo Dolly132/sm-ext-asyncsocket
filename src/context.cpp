@@ -59,11 +59,11 @@ void CAsyncSocketContext::Connected()
 void CAsyncSocketContext::OnConnect(CAsyncSocketContext *pSocketContext)
 {
     m_PendingCallback = false;
-    if (!m_pConnectForward || m_pConnectForward->GetFunctionCount() == 0)
+    if (!m_pConnectCallback || m_pConnectCallback->GetFunctionCount() == 0)
         return;
 
-    m_pConnectForward->PushCell(pSocketContext->m_Handle);
-    m_pConnectForward->Execute();
+    m_pConnectCallback->PushCell(pSocketContext->m_Handle);
+    m_pConnectCallback->Execute();
 }
 
 void CAsyncSocketContext::OnError(int error)
@@ -92,16 +92,16 @@ void CAsyncSocketContext::OnData(char* data, ssize_t size)
 
 bool CAsyncSocketContext::SetConnectCallback(funcid_t function)
 {
-    if (!m_pConnectForward)
+    if (!m_pConnectCallback)
 	{
-        m_pConnectForward = forwards->CreateForwardEx(NULL, ET_Ignore, 1, g_ConnectCbParams);
+        m_pConnectCallback = forwards->CreateForwardEx(NULL, ET_Ignore, 1, g_ConnectCbParams);
 	}
 
     IPluginFunction *fn = m_pContext->GetFunctionById(function);
     if (!fn)
         return false;
 
-    return m_pConnectForward->AddFunction(fn);
+    return m_pConnectCallback->AddFunction(fn);
 }
 
 bool CAsyncSocketContext::SetErrorCallback(funcid_t function)
