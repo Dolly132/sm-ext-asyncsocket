@@ -19,6 +19,8 @@ CAsyncSocketContext::CAsyncSocketContext(IPluginContext *pContext)
 	m_pConnectCallback = NULL;
 	m_pErrorCallback = NULL;
 	m_pDataCallback = NULL;
+
+	m_PendingCloseCount = 0;
 }
 
 CAsyncSocketContext::~CAsyncSocketContext()

@@ -28,6 +28,8 @@ public:
 	uv_tcp_t *m_pSocket;
 	uv_stream_t *m_pStream;
 
+	int m_PendingCloseCount;
+
 	CAsyncSocketContext(IPluginContext *plugin);
 	~CAsyncSocketContext();
 

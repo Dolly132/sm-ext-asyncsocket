@@ -206,35 +206,49 @@ void UV_Quit(uv_async_t *pHandle)
 	uv_stop(g_UV_Loop);
 }
 
+void UV_OnContextHandleClosed(uv_handle_t *handle)
+{
+    CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)handle->data;
+    free(handle);
+
+    if (--pSocketContext->m_PendingCloseCount <= 0)
+        delete pSocketContext;
+}
+
 void UV_DeleteAsyncContext(uv_async_t *pHandle)
 {
-    CAsyncSocketContext *pSocketContext =
-        (CAsyncSocketContext *)pHandle->data;
-
+    CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)pHandle->data;
     uv_close((uv_handle_t *)pHandle, pHandle->close_cb);
+
+    int pending = 0;
+    if (pSocketContext->m_pStream) pending++;
+    if (pSocketContext->m_pSocket &&
+        (uv_handle_t *)pSocketContext->m_pSocket != (uv_handle_t *)pSocketContext->m_pStream)
+        pending++;
+
+    if (pending == 0)
+    {
+        delete pSocketContext;
+        return;
+    }
+
+    pSocketContext->m_PendingCloseCount = pending;
 
     if (pSocketContext->m_pStream)
     {
-        uv_close(
-            (uv_handle_t *)pSocketContext->m_pStream,
-            pSocketContext->m_pStream->close_cb
-        );
-
+        uv_handle_t *h = (uv_handle_t *)pSocketContext->m_pStream;
+        h->data = pSocketContext;              // keep valid pointer until real close
         pSocketContext->m_pStream = NULL;
-        pSocketContext->m_pSocket = NULL;
+        uv_close(h, UV_OnContextHandleClosed);
     }
 
     if (pSocketContext->m_pSocket)
     {
-        uv_close(
-            (uv_handle_t *)pSocketContext->m_pSocket,
-            pSocketContext->m_pSocket->close_cb
-        );
-
+        uv_handle_t *h = (uv_handle_t *)pSocketContext->m_pSocket;
+        h->data = pSocketContext;
         pSocketContext->m_pSocket = NULL;
+        uv_close(h, UV_OnContextHandleClosed);
     }
-
-    delete pSocketContext;
 }
 
 void UV_PushError(CAsyncSocketContext *pSocketContext, int error)
@@ -296,7 +310,9 @@ void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
     data[nread] = '\0';
 
     if (buf && buf->base)
-        free(buf->base);
+	{
+		free(buf->base);
+	}
 
 	smutils->LogMessage(myself, "We created data now!!!");
     CSocketData *pData = (CSocketData *)malloc(sizeof(CSocketData));
