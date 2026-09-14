@@ -234,8 +234,7 @@ void UV_DeleteAsyncContext(uv_async_t *pHandle)
         pSocketContext->m_pSocket = NULL;
     }
 
-    // TEMPORARY DEBUG:
-    // delete pSocketContext;
+    delete pSocketContext;
 }
 
 void UV_PushError(CAsyncSocketContext *pSocketContext, int error)
@@ -251,8 +250,8 @@ void UV_PushError(CAsyncSocketContext *pSocketContext, int error)
 
 void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
 {
-    CAsyncSocketContext *pSocketContext =
-        (CAsyncSocketContext *)client->data;
+	smutils->LogMessage(myself, "Start of UV_OnRead");
+    CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)client->data;
 
     if (!pSocketContext || pSocketContext->m_Deleted)
     {
@@ -262,6 +261,7 @@ void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
         return;
     }
 
+	smutils->LogMessage(myself, "Socket context is available now...");
     if (nread < 0)
     {
         if (buf && buf->base)
@@ -273,6 +273,7 @@ void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
         return;
     }
 
+	smutils->LogMessage(myself, "We are comparing nread now");
     if (nread == 0)
     {
         if (buf && buf->base)
@@ -297,14 +298,16 @@ void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
     if (buf && buf->base)
         free(buf->base);
 
-    CSocketData *pData =
-        (CSocketData *)malloc(sizeof(CSocketData));
+	smutils->LogMessage(myself, "We created data now!!!");
+    CSocketData *pData = (CSocketData *)malloc(sizeof(CSocketData));
 
     if (!pData)
     {
         free(data);
         return;
     }
+
+	smutils->LogMessage(myself, "We created pData successfully btw");
 
     /*
      * Do NOT queue data for a context that has been deleted.
@@ -316,6 +319,7 @@ void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
         return;
     }
 
+	smutils->LogMessage(myself, "Added to enqueue");
     pData->pSocketContext = pSocketContext;
     pData->pBuffer = data;
     pData->BufferSize = nread;
@@ -325,6 +329,7 @@ void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
 
 void UV_OnConnect(uv_connect_t *req, int status)
 {
+	smutils->LogMessage(myself, "Start of UV_OnConnect");
 	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)req->data;
 	if(pSocketContext->m_Deleted)
 	{
@@ -333,6 +338,7 @@ void UV_OnConnect(uv_connect_t *req, int status)
 		return;
 	}
 
+	smutils->LogMessage(myself, "Checking UV_OnConnect #1");
 	if(status < 0)
 	{
 		free(req);
@@ -340,6 +346,7 @@ void UV_OnConnect(uv_connect_t *req, int status)
 		return;
 	}
 
+	smutils->LogMessage(myself, "Added UV_OnRead to enqueue");
 	pSocketContext->m_PendingCallback = true;
 
 	pSocketContext->m_pStream = req->handle;
@@ -356,17 +363,20 @@ void UV_OnConnect(uv_connect_t *req, int status)
 
 void UV_StartRead(uv_async_t *pHandle)
 {
+	smutils->LogMessage(myself, "Start of UV_StartRead");
 	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)pHandle->data;
 	uv_close((uv_handle_t *)pHandle, pHandle->close_cb);
 
 	if(pSocketContext->m_Deleted || !pSocketContext->m_pStream)
 		return;
 
+	smutils->LogMessage(myself, "End of UV_StartRead");
 	uv_read_start(pSocketContext->m_pStream, UV_AllocBuffer, UV_OnRead);
 }
 
 void UV_OnNewConnection(uv_stream_t *server, int status)
 {
+	smutils->LogMessage(myself, "Start of UV_OnNewConnection");
 	// server context
 	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)server->data;
 	if(pSocketContext->m_Deleted)
@@ -383,6 +393,7 @@ void UV_OnNewConnection(uv_stream_t *server, int status)
 		return;
 	}
 
+	smutils->LogMessage(myself, "Center of UV_OnNewConnection");
 	uv_tcp_t *pClientSocket = (uv_tcp_t *)malloc(sizeof(uv_tcp_t));
 	uv_tcp_init(g_UV_Loop, pClientSocket);
 	pClientSocket->close_cb = UV_FreeHandle;
@@ -399,6 +410,8 @@ void UV_OnNewConnection(uv_stream_t *server, int status)
 	{
 		uv_close((uv_handle_t *)pClientSocket, pClientSocket->close_cb);
 	}
+
+	smutils->LogMessage(myself, "End of UV_OnNewConnection");
 }
 
 void UV_OnAsyncResolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo *res)
