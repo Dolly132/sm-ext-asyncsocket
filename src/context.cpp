@@ -58,7 +58,7 @@ void CAsyncSocketContext::OnConnect(CAsyncSocketContext *pSocketContext)
 	}
 
     m_pConnectCallback->PushCell(pSocketContext->m_Handle);
-    m_pConnectCallback->Execute();
+    m_pConnectCallback->Execute(NULL);
 }
 
 void CAsyncSocketContext::OnError(int error)
