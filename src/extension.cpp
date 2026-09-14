@@ -39,6 +39,8 @@
  * @brief Implement extension code here.
  */
 
+#define MAX_IP_BUFFER_LENGTH 64
+
 moodycamel::ReaderWriterQueue<CSocketConnect *> g_ConnectQueue;
 moodycamel::ReaderWriterQueue<CSocketError *> g_ErrorQueue;
 moodycamel::ReaderWriterQueue<CSocketData *> g_DataQueue;
@@ -107,6 +109,19 @@ void OnGameFrame(bool simulating)
                 pSocketContext->m_pStream = pConnect->pClientSocket;
                 pSocketContext->m_pStream->data = pSocketContext;
 
+				if (pConnect->pClientIP)
+				{
+					pSocketContext->m_pClientIP = pConnect->pClientIP;
+				}
+				else
+				{
+					pSocketContext->m_pClientIP = (char *)malloc(MAX_IP_BUFFER_LENGTH);
+					if (pSocketContext->m_pClientIP)
+					{
+						pSocketContext->m_pClientIP[0] = '\0';
+					}
+				}
+
                 pConnect->pSocketContext->OnConnect(pSocketContext);
 
                 if(!pSocketContext->m_Deleted)
@@ -121,6 +136,11 @@ void OnGameFrame(bool simulating)
             }
             else
             {
+				if (pConnect->pClientIP)
+				{
+					pConnect->pSocketContext->m_pClientIP = pConnect->pClientIP;
+				}
+
                 pConnect->pSocketContext->Connected();
             }
         }
@@ -220,6 +240,12 @@ void UV_DeleteAsyncContext(uv_async_t *pHandle)
     CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)pHandle->data;
     uv_close((uv_handle_t *)pHandle, pHandle->close_cb);
 
+	if (pSocketContext->m_pClientIP)
+    {
+        free(pSocketContext->m_pClientIP);
+        pSocketContext->m_pClientIP = NULL;
+    }
+
     int pending = 0;
     if (pSocketContext->m_pStream) pending++;
     if (pSocketContext->m_pSocket &&
@@ -264,7 +290,6 @@ void UV_PushError(CAsyncSocketContext *pSocketContext, int error)
 
 void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
 {
-	smutils->LogMessage(myself, "Start of UV_OnRead");
     CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)client->data;
 
     if (!pSocketContext || pSocketContext->m_Deleted)
@@ -275,7 +300,6 @@ void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
         return;
     }
 
-	smutils->LogMessage(myself, "Socket context is available now...");
     if (nread < 0)
     {
         if (buf && buf->base)
@@ -287,7 +311,6 @@ void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
         return;
     }
 
-	smutils->LogMessage(myself, "We are comparing nread now");
     if (nread == 0)
     {
         if (buf && buf->base)
@@ -314,7 +337,6 @@ void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
 		free(buf->base);
 	}
 
-	smutils->LogMessage(myself, "We created data now!!!");
     CSocketData *pData = (CSocketData *)malloc(sizeof(CSocketData));
 
     if (!pData)
@@ -323,11 +345,6 @@ void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
         return;
     }
 
-	smutils->LogMessage(myself, "We created pData successfully btw");
-
-    /*
-     * Do NOT queue data for a context that has been deleted.
-     */
     if (pSocketContext->m_Deleted)
     {
         free(data);
@@ -335,7 +352,6 @@ void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
         return;
     }
 
-	smutils->LogMessage(myself, "Added to enqueue");
     pData->pSocketContext = pSocketContext;
     pData->pBuffer = data;
     pData->BufferSize = nread;
@@ -345,7 +361,6 @@ void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
 
 void UV_OnConnect(uv_connect_t *req, int status)
 {
-	smutils->LogMessage(myself, "Start of UV_OnConnect");
 	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)req->data;
 	if(pSocketContext->m_Deleted)
 	{
@@ -354,7 +369,6 @@ void UV_OnConnect(uv_connect_t *req, int status)
 		return;
 	}
 
-	smutils->LogMessage(myself, "Checking UV_OnConnect #1");
 	if(status < 0)
 	{
 		free(req);
@@ -362,7 +376,6 @@ void UV_OnConnect(uv_connect_t *req, int status)
 		return;
 	}
 
-	smutils->LogMessage(myself, "Added UV_OnRead to enqueue");
 	pSocketContext->m_PendingCallback = true;
 
 	pSocketContext->m_pStream = req->handle;
@@ -372,6 +385,7 @@ void UV_OnConnect(uv_connect_t *req, int status)
 	CSocketConnect *pConnect = (CSocketConnect *)malloc(sizeof(CSocketConnect));
 	pConnect->pSocketContext = pSocketContext;
 	pConnect->pClientSocket = pSocketContext->m_pStream;
+	pConnect->pClientIP = NULL;
 	g_ConnectQueue.enqueue(pConnect);
 
 	uv_read_start(pSocketContext->m_pStream, UV_AllocBuffer, UV_OnRead);
@@ -379,20 +393,17 @@ void UV_OnConnect(uv_connect_t *req, int status)
 
 void UV_StartRead(uv_async_t *pHandle)
 {
-	smutils->LogMessage(myself, "Start of UV_StartRead");
 	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)pHandle->data;
 	uv_close((uv_handle_t *)pHandle, pHandle->close_cb);
 
 	if(pSocketContext->m_Deleted || !pSocketContext->m_pStream)
 		return;
 
-	smutils->LogMessage(myself, "End of UV_StartRead");
 	uv_read_start(pSocketContext->m_pStream, UV_AllocBuffer, UV_OnRead);
 }
 
 void UV_OnNewConnection(uv_stream_t *server, int status)
 {
-	smutils->LogMessage(myself, "Start of UV_OnNewConnection");
 	// server context
 	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)server->data;
 	if(pSocketContext->m_Deleted)
@@ -409,10 +420,28 @@ void UV_OnNewConnection(uv_stream_t *server, int status)
 		return;
 	}
 
-	smutils->LogMessage(myself, "Center of UV_OnNewConnection");
 	uv_tcp_t *pClientSocket = (uv_tcp_t *)malloc(sizeof(uv_tcp_t));
 	uv_tcp_init(g_UV_Loop, pClientSocket);
 	pClientSocket->close_cb = UV_FreeHandle;
+
+	pConnect->pClientIP = (char *)malloc(MAX_IP_BUFFER_LENGTH);
+	if (pConnect->pClientIP)
+	{
+		pConnect->pClientIP[0] = '\0';
+		struct sockaddr_storage name;
+		int namelen = sizeof(name);
+		if (uv_tcp_getpeername(pClientSocket, (struct sockaddr *)&name, &namelen) == 0) 
+		{
+			if (name.ss_family == AF_INET) 
+			{
+				uv_ip4_name((const struct sockaddr_in *)&name, pConnect->pClientIP, MAX_IP_BUFFER_LENGTH);
+			} 
+			else if (name.ss_family == AF_INET6) 
+			{
+				uv_ip6_name((const struct sockaddr_in6 *)&name, pConnect->pClientIP, MAX_IP_BUFFER_LENGTH);
+			}
+		}
+	}
 
 	if(uv_accept((uv_stream_t *)pSocketContext->m_pSocket, (uv_stream_t *)pClientSocket) == 0)
 	{
@@ -426,8 +455,6 @@ void UV_OnNewConnection(uv_stream_t *server, int status)
 	{
 		uv_close((uv_handle_t *)pClientSocket, pClientSocket->close_cb);
 	}
-
-	smutils->LogMessage(myself, "End of UV_OnNewConnection");
 }
 
 void UV_OnAsyncResolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo *res)
@@ -703,6 +730,21 @@ cell_t Native_AsyncSocket_SetDataCallback(IPluginContext *pContext, const cell_t
 	return true;
 }
 
+cell_t Native_AsyncSocket_GetClientIP(IPluginContext *pContext, const cell_t *params)
+{
+	CAsyncSocketContext *pSocketContext = g_AsyncSocket.GetSocketInstanceByHandle(params[1]);
+
+	if (pSocketContext == NULL)
+	{
+		return pContext->ThrowNativeError("Invalid socket handle");
+	}
+
+	const char *ip = (pSocketContext->m_pClientIP != NULL) ? pSocketContext->m_pClientIP : "";
+	pContext->StringToLocal(params[2], params[3], ip);
+
+	return 1;
+}
+
 // Sourcemod Plugin Events
 bool AsyncSocket::SDK_OnLoad(char *error, size_t maxlength, bool late)
 {
@@ -760,5 +802,6 @@ const sp_nativeinfo_t AsyncSocketNatives[] = {
 	{"AsyncSocket.SetConnectCallback", Native_AsyncSocket_SetConnectCallback},
 	{"AsyncSocket.SetErrorCallback", Native_AsyncSocket_SetErrorCallback},
 	{"AsyncSocket.SetDataCallback", Native_AsyncSocket_SetDataCallback},
+	{"AsyncSocket.GetClientIP", Native_AsyncSocket_GetClientIP},
 	{NULL, NULL}
 };

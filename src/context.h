@@ -20,6 +20,8 @@ public:
 	char *m_pHost;
 	int m_Port;
 
+	char *m_pClientIP;
+
 	IPluginFunction *m_pConnectCallback;
 	IPluginFunction *m_pErrorCallback;
 	IPluginFunction *m_pDataCallback;

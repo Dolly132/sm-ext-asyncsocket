@@ -8,6 +8,8 @@ CAsyncSocketContext::CAsyncSocketContext(IPluginContext *pContext)
 	m_pHost = NULL;
 	m_Port = -1;
 
+	m_pClientIP = NULL;
+
 	m_Deleted = false;
 	m_PendingCallback = false;
 	m_Pending = false;
@@ -26,7 +28,14 @@ CAsyncSocketContext::CAsyncSocketContext(IPluginContext *pContext)
 CAsyncSocketContext::~CAsyncSocketContext()
 {
 	if(m_pHost)
+	{
 		free(m_pHost);
+	}
+
+	if(m_pClientIP)
+	{
+		free(m_pClientIP);
+	}
 
 	m_pConnectCallback = NULL;
 	m_pErrorCallback = NULL;

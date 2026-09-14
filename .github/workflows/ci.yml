@@ -73,7 +73,7 @@ jobs:
           retention-days: 1
 
   build-release-extension:
-    uses: srcdslab/ci-workflows/.github/workflows/shared_build_release_am_extension.yml@v1
+    uses: Rushaway/ci-workflows/.github/workflows/shared_build_release_am_extension.yml@main
     needs: [build-libuv-linux, build-libuv-windows]
     with:
       sdks: "sdk2013"
