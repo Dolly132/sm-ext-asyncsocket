@@ -20,9 +20,9 @@ public:
 	char *m_pHost;
 	int m_Port;
 
-	IPluginFunction *m_pConnectCallback;
-	IPluginFunction *m_pErrorCallback;
-	IPluginFunction *m_pDataCallback;
+	IChangeableForward *m_pConnectCallback;
+	IChangeableForward *m_pErrorCallback;
+	IChangeableForward *m_pDataCallback;
 
 	uv_getaddrinfo_t m_Resolver;
 	uv_tcp_t *m_pSocket;

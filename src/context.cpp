@@ -1,6 +1,10 @@
 #include "extension.h"
 #include "context.h"
 
+const ParamType g_ConnectCbParams[] = {Param_Cell};
+const ParamType g_ErrorCbParams[] = {Param_Cell, Param_Cell, Param_String};
+const ParamType g_DataCbParams[] = {Param_Cell, Param_String, Param_Cell};
+
 CAsyncSocketContext::CAsyncSocketContext(IPluginContext *pContext)
 {
 	m_pContext = pContext;
@@ -28,6 +32,15 @@ CAsyncSocketContext::~CAsyncSocketContext()
 	if(m_pHost)
 		free(m_pHost);
 
+	if (m_pConnectCallback)
+		m_pConnectCallback->ReleaseForward();
+
+	if (m_pErrorCallback)
+		m_pErrorCallback->ReleaseForward();
+
+	if (m_pDataCallback)
+		m_pDataCallback->ReleaseForward();
+
 	m_Deleted = true;
 }
 
@@ -45,19 +58,19 @@ void CAsyncSocketContext::Connected()
 // Server
 void CAsyncSocketContext::OnConnect(CAsyncSocketContext *pSocketContext)
 {
-	m_PendingCallback = false;
-	if(!m_pConnectCallback)
-		return;
+    m_PendingCallback = false;
+    if (!m_pConnectForward || m_pConnectForward->GetFunctionCount() == 0)
+        return;
 
-	m_pConnectCallback->PushCell(pSocketContext->m_Handle);
-	m_pConnectCallback->Execute(NULL);
+    m_pConnectForward->PushCell(pSocketContext->m_Handle);
+    m_pConnectForward->Execute();
 }
 
 void CAsyncSocketContext::OnError(int error)
 {
 	m_PendingCallback = false;
-	if(!m_pErrorCallback)
-		return;
+    if (!m_pErrorCallback || m_pErrorCallback->GetFunctionCount() == 0)
+        return;
 
 	m_pErrorCallback->PushCell(m_Handle);
 	m_pErrorCallback->PushCell(error);
@@ -68,8 +81,8 @@ void CAsyncSocketContext::OnError(int error)
 void CAsyncSocketContext::OnData(char* data, ssize_t size)
 {
 	m_PendingCallback = false;
-	if(!m_pDataCallback)
-		return;
+    if (!m_pDataCallback || m_pDataCallback->GetFunctionCount() == 0)
+        return;
 
 	m_pDataCallback->PushCell(m_Handle);
 	m_pDataCallback->PushString(data);
@@ -79,18 +92,36 @@ void CAsyncSocketContext::OnData(char* data, ssize_t size)
 
 bool CAsyncSocketContext::SetConnectCallback(funcid_t function)
 {
-	m_pConnectCallback = m_pContext->GetFunctionById(function);
-	return m_pConnectCallback ? true : false;
+    if (!m_pConnectForward)
+        m_pConnectForward = forwards->CreateForwardEx(NULL, ET_Ignore, 1, NULL, Param_Cell);
+
+    IPluginFunction *fn = m_pContext->GetFunctionById(function);
+    if (!fn)
+        return false;
+
+    return m_pConnectForward->AddFunction(fn);
 }
 
 bool CAsyncSocketContext::SetErrorCallback(funcid_t function)
 {
-	m_pErrorCallback = m_pContext->GetFunctionById(function);
-	return m_pErrorCallback ? true : false;
+    if (!m_pErrorCallback)
+        m_pErrorCallback = forwards->CreateForwardEx(NULL, ET_Ignore, 1, NULL, Param_Cell);
+
+    IPluginFunction *fn = m_pContext->GetFunctionById(function);
+    if (!fn)
+        return false;
+
+    return m_pErrorCallback->AddFunction(fn);
 }
 
 bool CAsyncSocketContext::SetDataCallback(funcid_t function)
 {
-	m_pDataCallback = m_pContext->GetFunctionById(function);
-	return m_pDataCallback ? true : false;
+	if (!m_pDataCallback)
+        m_pDataCallback = forwards->CreateForwardEx(NULL, ET_Ignore, 1, NULL, Param_Cell);
+
+    IPluginFunction *fn = m_pContext->GetFunctionById(function);
+    if (!fn)
+        return false;
+
+    return m_pDataCallback->AddFunction(fn);
 }
