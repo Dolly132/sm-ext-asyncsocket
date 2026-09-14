@@ -77,7 +77,7 @@ void AsyncSocket::OnHandleDestroy(HandleType_t type, void *object)
 		CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)object;
 		pSocketContext->m_Deleted = true;
 
-		if(g_Running && (pSocketContext->m_pSocket || pSocketContext->m_pStream || pSocketContext->m_PendingCallback))
+		if(g_Running)
 		{
 			CAsyncAddJob Job;
 			Job.CallbackFn = UV_DeleteAsyncContext;
@@ -98,56 +98,71 @@ void OnGameFrame(bool simulating)
 	CSocketConnect *pConnect;
 	while(g_ConnectQueue.try_dequeue(pConnect))
 	{
-		if(pConnect->pSocketContext->m_Server)
+		if(!pConnect->pSocketContext->m_Deleted)
 		{
-			CAsyncSocketContext *pSocketContext = new CAsyncSocketContext(pConnect->pSocketContext->m_pContext);
-			pSocketContext->m_Handle = handlesys->CreateHandle(g_AsyncSocket.socketHandleType, pSocketContext,
-				pConnect->pSocketContext->m_pContext->GetIdentity(), myself->GetIdentity(), NULL);
-
-			pSocketContext->m_pStream = pConnect->pClientSocket;
-			pSocketContext->m_pStream->data = pSocketContext;
-
-			if (pConnect->pClientIP)
-            {
- 				pSocketContext->m_pClientIP = pConnect->pClientIP;
- 			}
- 			else
- 			{
- 				pSocketContext->m_pClientIP = (char *)malloc(MAX_IP_BUFFER_LENGTH);
- 				if (pSocketContext->m_pClientIP)
- 				{
- 					pSocketContext->m_pClientIP[0] = '\0';
- 				}
- 			}
-
-			pConnect->pSocketContext->OnConnect(pSocketContext);
-
-			if(!pSocketContext->m_Deleted)
+			if(pConnect->pSocketContext->m_Server)
 			{
-				CAsyncAddJob Job;
-				Job.CallbackFn = UV_StartRead;
-				Job.pData = pSocketContext;
-				g_AsyncAddQueue.enqueue(Job);
+				CAsyncSocketContext *pSocketContext = new CAsyncSocketContext(pConnect->pSocketContext->m_pContext);
+				pSocketContext->m_Handle = handlesys->CreateHandle(g_AsyncSocket.socketHandleType, pSocketContext,
+					pConnect->pSocketContext->m_pContext->GetIdentity(), myself->GetIdentity(), NULL);
 
-				uv_async_send(&g_UV_AsyncAdded);
+				pSocketContext->m_pStream = pConnect->pClientSocket;
+				pSocketContext->m_pStream->data = pSocketContext;
+
+				if (pConnect->pClientIP)
+				{
+					pSocketContext->m_pClientIP = pConnect->pClientIP;
+				}
+				else
+				{
+					pSocketContext->m_pClientIP = (char *)malloc(MAX_IP_BUFFER_LENGTH);
+					if (pSocketContext->m_pClientIP)
+					{
+						pSocketContext->m_pClientIP[0] = '\0';
+					}
+				}
+
+				pConnect->pSocketContext->OnConnect(pSocketContext);
+
+				if(!pSocketContext->m_Deleted)
+				{
+					CAsyncAddJob Job;
+					Job.CallbackFn = UV_StartRead;
+					Job.pData = pSocketContext;
+					g_AsyncAddQueue.enqueue(Job);
+
+					uv_async_send(&g_UV_AsyncAdded);
+				}
+			}
+			else
+			{
+				if (pConnect->pClientIP)
+				{
+					pConnect->pSocketContext->m_pClientIP = pConnect->pClientIP;
+				}
+
+				pConnect->pSocketContext->Connected();
 			}
 		}
 		else
 		{
-			if (pConnect->pClientIP)
-            {
-                pConnect->pSocketContext->m_pClientIP = pConnect->pClientIP;
-            }
-			pConnect->pSocketContext->Connected();
+			// If the parent socket was deleted while connecting, clean up the orphaned client socket
+			if(pConnect->pClientSocket)
+			{
+				uv_close((uv_handle_t *)pConnect->pClientSocket, UV_FreeHandle);
+			}
 		}
 
 		free(pConnect);
 	}
 
 	CSocketData *pData;
-	while(g_DataQueue.try_dequeue(pData))
+	while (g_DataQueue.try_dequeue(pData))
 	{
-		pData->pSocketContext->OnData(pData->pBuffer, pData->BufferSize);
+		if (pData->pSocketContext && !pData->pSocketContext->m_Deleted)
+		{
+			pData->pSocketContext->OnData(pData->pBuffer, pData->BufferSize);
+		}
 
 		free(pData->pBuffer);
 		free(pData);
@@ -156,7 +171,10 @@ void OnGameFrame(bool simulating)
 	CSocketError *pError;
 	while(g_ErrorQueue.try_dequeue(pError))
 	{
-		pError->pSocketContext->OnError(pError->Error);
+		if(!pError->pSocketContext->m_Deleted)
+		{
+			pError->pSocketContext->OnError(pError->Error);
+		}
 
 		free(pError);
 	}
@@ -183,7 +201,10 @@ void UV_OnAsyncAdded(uv_async_t *pHandle)
 
 void UV_FreeHandle(uv_handle_t *handle)
 {
-	free(handle);
+	if (handle)
+	{
+		free(handle);
+	}
 }
 
 void UV_AllocBuffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf)
@@ -201,31 +222,55 @@ void UV_Quit(uv_async_t *pHandle)
 	uv_stop(g_UV_Loop);
 }
 
+void UV_OnContextHandleClosed(uv_handle_t *handle)
+{
+	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)handle->data;
+	free(handle);
+
+	if (--pSocketContext->m_PendingCloseCount <= 0)
+		delete pSocketContext;
+}
+
 void UV_DeleteAsyncContext(uv_async_t *pHandle)
 {
 	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)pHandle->data;
 	uv_close((uv_handle_t *)pHandle, pHandle->close_cb);
 
-	if(pSocketContext->m_pStream)
-	{
-		uv_close((uv_handle_t *)pSocketContext->m_pStream, pSocketContext->m_pStream->close_cb);
-		pSocketContext->m_pStream = NULL;
-		pSocketContext->m_pSocket = NULL;
-	}
-
-	if(pSocketContext->m_pSocket)
-	{
-		uv_close((uv_handle_t *)pSocketContext->m_pSocket, pSocketContext->m_pSocket->close_cb);
-		pSocketContext->m_pSocket = NULL;
-	}
-
 	if (pSocketContext->m_pClientIP)
-    {
-        free(pSocketContext->m_pClientIP);
-        pSocketContext->m_pClientIP = NULL;
-    }
+	{
+		free(pSocketContext->m_pClientIP);
+		pSocketContext->m_pClientIP = NULL;
+	}
 
-	delete pSocketContext;
+	int pending = 0;
+	if (pSocketContext->m_pStream)
+		pending++;
+	if (pSocketContext->m_pSocket && (uv_handle_t *)pSocketContext->m_pSocket != (uv_handle_t *)pSocketContext->m_pStream)
+		pending++;
+
+	if (pending == 0)
+	{
+		delete pSocketContext;
+		return;
+	}
+
+	pSocketContext->m_PendingCloseCount = pending;
+
+	if (pSocketContext->m_pStream)
+	{
+		uv_handle_t *h = (uv_handle_t *)pSocketContext->m_pStream;
+		h->data = pSocketContext;
+		pSocketContext->m_pStream = NULL;
+		uv_close(h, UV_OnContextHandleClosed);
+	}
+
+	if (pSocketContext->m_pSocket)
+	{
+		uv_handle_t *h = (uv_handle_t *)pSocketContext->m_pSocket;
+		h->data = pSocketContext;
+		pSocketContext->m_pSocket = NULL;
+		uv_close(h, UV_OnContextHandleClosed);
+	}
 }
 
 void UV_PushError(CAsyncSocketContext *pSocketContext, int error)
@@ -242,36 +287,67 @@ void UV_PushError(CAsyncSocketContext *pSocketContext, int error)
 void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
 {
 	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)client->data;
-	if(pSocketContext->m_Deleted)
+
+	if (!pSocketContext || pSocketContext->m_Deleted)
 	{
-		free(buf->base);
-		uv_close((uv_handle_t *)client, client->close_cb);
-		pSocketContext->m_pStream = NULL;
-		pSocketContext->m_pSocket = NULL;
+		if (buf && buf->base)
+			free(buf->base);
+
 		return;
 	}
 
-	if(nread < 0)
+	if (nread < 0)
 	{
-		// Connection closed
-		free(buf->base);
-		// But let the client disconnect.
-		//uv_close((uv_handle_t *)client, client->close_cb);
-		//pSocketContext->m_pStream = NULL;
-		//pSocketContext->m_pSocket = NULL;
+		if (buf && buf->base)
+			free(buf->base);
 
-		UV_PushError(pSocketContext, nread);
+		pSocketContext->m_PendingCallback = true;
+		UV_PushError(pSocketContext, (int)nread);
+
 		return;
 	}
 
-	pSocketContext->m_PendingCallback = true;
+	if (nread == 0)
+	{
+		if (buf && buf->base)
+			free(buf->base);
 
-	char *data = (char *)malloc(sizeof(char) * (nread + 1));
-	data[nread] = 0;
-	strncpy(data, buf->base, nread);
-	free(buf->base);
+		return;
+	}
+
+	char *data = (char *)malloc((size_t)nread + 1);
+
+	if (!data)
+	{
+		if (buf && buf->base)
+			free(buf->base);
+
+		return;
+	}
+
+	memcpy(data, buf->base, (size_t)nread);
+	data[nread] = '\0';
+
+	if (buf && buf->base)
+	{
+		free(buf->base);
+	}
 
 	CSocketData *pData = (CSocketData *)malloc(sizeof(CSocketData));
+
+	if (!pData)
+	{
+		free(data);
+		return;
+	}
+
+	if (pSocketContext->m_Deleted)
+	{
+		free(data);
+		free(pData);
+		return;
+	}
+
 	pData->pSocketContext = pSocketContext;
 	pData->pBuffer = data;
 	pData->BufferSize = nread;
@@ -335,7 +411,6 @@ void UV_OnNewConnection(uv_stream_t *server, int status)
 	if(status < 0)
 	{
 		uv_close((uv_handle_t *)server, server->close_cb);
-		//uv_close((uv_handle_t *)pSocketContext->m_pSocket, pSocketContext->m_pSocket->close_cb);
 		UV_PushError(pSocketContext, status);
 		return;
 	}
@@ -380,20 +455,19 @@ void UV_OnNewConnection(uv_stream_t *server, int status)
 
 void UV_OnAsyncResolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo *res)
 {
-	if(resolver->service != NULL)
-		free(resolver->service);
-
 	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)resolver->data;
 	if(pSocketContext->m_Deleted || pSocketContext->m_pSocket)
 	{
-		uv_freeaddrinfo(res);
+		if (res)
+			uv_freeaddrinfo(res);
 		return;
 	}
 
 	if(status < 0)
 	{
 		pSocketContext->m_Pending = false;
-		uv_freeaddrinfo(res);
+		if (res)
+			uv_freeaddrinfo(res);
 		UV_PushError(pSocketContext, status);
 		return;
 	}
@@ -408,7 +482,15 @@ void UV_OnAsyncResolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo 
 
 	if(pSocketContext->m_Server)
 	{
-		uv_tcp_bind(pSocket, (const struct sockaddr *)res->ai_addr, 0);
+		int bind_err = uv_tcp_bind(pSocket, (const struct sockaddr *)res->ai_addr, 0);
+		if(bind_err)
+		{
+			uv_close((uv_handle_t *)pSocket, pSocket->close_cb);
+			pSocketContext->m_pSocket = NULL;
+			UV_PushError(pSocketContext, bind_err);
+			uv_freeaddrinfo(res);
+			return;
+		}
 
 		int err = uv_listen((uv_stream_t *)pSocket, 32, UV_OnNewConnection);
 		if(err)
@@ -439,10 +521,11 @@ void UV_OnAsyncResolve(uv_async_t *pHandle)
 
 	pSocketContext->m_Resolver.data = pSocketContext;
 
-	char *service = (char *)malloc(8);
-	sprintf(service, "%d", pSocketContext->m_Port);
+	char service[16];
+	snprintf(service, sizeof(service), "%d", pSocketContext->m_Port);
 
 	struct addrinfo hints;
+	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = PF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
@@ -451,8 +534,6 @@ void UV_OnAsyncResolve(uv_async_t *pHandle)
 	int err = uv_getaddrinfo(g_UV_Loop, &pSocketContext->m_Resolver, UV_OnAsyncResolved, pSocketContext->m_pHost, service, &hints);
 	if(err)
 	{
-		if(service != NULL)
-			free(service);
 		UV_PushError(pSocketContext, err);
 	}
 }
