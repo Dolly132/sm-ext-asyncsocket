@@ -21,6 +21,11 @@ CAsyncSocketContext::CAsyncSocketContext(IPluginContext *pContext)
 	m_pConnectCallback = NULL;
 	m_pErrorCallback = NULL;
 	m_pDataCallback = NULL;
+
+	m_UvRefs = 0;
+	m_DeleteRequested = false;
+
+	memset(&m_Resolver, 0, sizeof(m_Resolver));
 }
 
 CAsyncSocketContext::~CAsyncSocketContext()
