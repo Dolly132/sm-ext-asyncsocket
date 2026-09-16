@@ -33,15 +33,30 @@
 #include "context.h"
 #include "readerwriterqueue.h"
 #include <uv.h>
+#include <vector>
 
 /**
  * @file extension.cpp
  * @brief Implement extension code here.
  */
 
+#define MAX_IP_BUFFER_LENGTH 64
+
 moodycamel::ReaderWriterQueue<CSocketConnect *> g_ConnectQueue;
 moodycamel::ReaderWriterQueue<CSocketError *> g_ErrorQueue;
 moodycamel::ReaderWriterQueue<CSocketData *> g_DataQueue;
+
+// A context is never deleted on the UV thread: libuv hands it over here once it is
+// done with it, and the game thread performs the actual delete. The queues above hold
+// raw context pointers, so deleting on the UV thread would free objects the game
+// thread is about to dereference while draining them.
+moodycamel::ReaderWriterQueue<CAsyncSocketContext *> g_DeleteQueue;
+
+// Game thread only. Contexts handed over by the UV thread on an earlier frame. They
+// are deleted one frame later, after a full drain of the queues above: the UV thread
+// always enqueues a callback item before it hands the context over, so by then every
+// item that can reference them has been consumed.
+std::vector<CAsyncSocketContext *> g_ContextsToDelete;
 
 uv_loop_t *g_UV_Loop;
 uv_thread_t g_UV_LoopThread;
@@ -75,7 +90,7 @@ void AsyncSocket::OnHandleDestroy(HandleType_t type, void *object)
 		CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)object;
 		pSocketContext->m_Deleted = true;
 
-		if(g_Running && (pSocketContext->m_pSocket || pSocketContext->m_pStream || pSocketContext->m_PendingCallback))
+		if(g_Running)
 		{
 			CAsyncAddJob Job;
 			Job.CallbackFn = UV_DeleteAsyncContext;
@@ -91,44 +106,95 @@ void AsyncSocket::OnHandleDestroy(HandleType_t type, void *object)
 	}
 }
 
+void UV_CloseOrphanedClient(uv_async_t *pHandle)
+{
+	uv_handle_t *handle = (uv_handle_t *)pHandle->data;
+	uv_close(handle, UV_FreeHandle);
+	uv_close((uv_handle_t *)pHandle, pHandle->close_cb);
+}
+
 void OnGameFrame(bool simulating)
 {
 	CSocketConnect *pConnect;
 	while(g_ConnectQueue.try_dequeue(pConnect))
 	{
-		if(pConnect->pSocketContext->m_Server)
+		if(!pConnect->pSocketContext->m_Deleted)
 		{
-			CAsyncSocketContext *pSocketContext = new CAsyncSocketContext(pConnect->pSocketContext->m_pContext);
-			pSocketContext->m_Handle = handlesys->CreateHandle(g_AsyncSocket.socketHandleType, pSocketContext,
-				pConnect->pSocketContext->m_pContext->GetIdentity(), myself->GetIdentity(), NULL);
-
-			pSocketContext->m_pStream = pConnect->pClientSocket;
-			pSocketContext->m_pStream->data = pSocketContext;
-
-			pConnect->pSocketContext->OnConnect(pSocketContext);
-
-			if(!pSocketContext->m_Deleted)
+			if(pConnect->pSocketContext->m_Server)
 			{
-				CAsyncAddJob Job;
-				Job.CallbackFn = UV_StartRead;
-				Job.pData = pSocketContext;
-				g_AsyncAddQueue.enqueue(Job);
+				CAsyncSocketContext *pSocketContext = new CAsyncSocketContext(pConnect->pSocketContext->m_pContext);
+				pSocketContext->m_Handle = handlesys->CreateHandle(g_AsyncSocket.socketHandleType, pSocketContext,
+					pConnect->pSocketContext->m_pContext->GetIdentity(), myself->GetIdentity(), NULL);
 
-				uv_async_send(&g_UV_AsyncAdded);
+				pSocketContext->m_pStream = pConnect->pClientSocket;
+				pSocketContext->m_pStream->data = pSocketContext;
+
+				if (pConnect->pClientIP)
+				{
+					pSocketContext->m_pClientIP = pConnect->pClientIP;
+				}
+				else
+				{
+					pSocketContext->m_pClientIP = (char *)malloc(MAX_IP_BUFFER_LENGTH);
+					if (pSocketContext->m_pClientIP)
+					{
+						pSocketContext->m_pClientIP[0] = '\0';
+					}
+				}
+
+				pConnect->pSocketContext->OnConnect(pSocketContext);
+
+				if(!pSocketContext->m_Deleted)
+				{
+					CAsyncAddJob Job;
+					Job.CallbackFn = UV_StartRead;
+					Job.pData = pSocketContext;
+					g_AsyncAddQueue.enqueue(Job);
+
+					uv_async_send(&g_UV_AsyncAdded);
+				}
+			}
+			else
+			{
+				if (pConnect->pClientIP)
+				{
+					pConnect->pSocketContext->m_pClientIP = pConnect->pClientIP;
+				}
+
+				pConnect->pSocketContext->Connected();
 			}
 		}
 		else
 		{
-			pConnect->pSocketContext->Connected();
+			// The listening socket was destroyed while this connection was on its way to
+			// us. Only an accepted socket is orphaned here: on an outgoing connection
+			// pClientSocket is the context's own handle and UV_DeleteAsyncContext owns it,
+			// so closing it here would close it twice.
+			if(pConnect->bAccepted && pConnect->pClientSocket)
+			{
+				CAsyncAddJob Job;
+				Job.CallbackFn = UV_CloseOrphanedClient;
+				Job.pData = pConnect->pClientSocket;
+				g_AsyncAddQueue.enqueue(Job);
+				uv_async_send(&g_UV_AsyncAdded);
+			}
+
+			if(pConnect->pClientIP)
+			{
+				free(pConnect->pClientIP);
+			}
 		}
 
 		free(pConnect);
 	}
 
 	CSocketData *pData;
-	while(g_DataQueue.try_dequeue(pData))
+	while (g_DataQueue.try_dequeue(pData))
 	{
-		pData->pSocketContext->OnData(pData->pBuffer, pData->BufferSize);
+		if (pData->pSocketContext && !pData->pSocketContext->m_Deleted)
+		{
+			pData->pSocketContext->OnData(pData->pBuffer, pData->BufferSize);
+		}
 
 		free(pData->pBuffer);
 		free(pData);
@@ -137,9 +203,28 @@ void OnGameFrame(bool simulating)
 	CSocketError *pError;
 	while(g_ErrorQueue.try_dequeue(pError))
 	{
-		pError->pSocketContext->OnError(pError->Error);
+		if(!pError->pSocketContext->m_Deleted)
+		{
+			pError->pSocketContext->OnError(pError->Error);
+		}
 
 		free(pError);
+	}
+
+	// Everything queued before these contexts were handed over has now been drained,
+	// so nothing can reference them anymore.
+	for(size_t i = 0; i < g_ContextsToDelete.size(); i++)
+	{
+		delete g_ContextsToDelete[i];
+	}
+	g_ContextsToDelete.clear();
+
+	// Collected here, deleted on the next frame: the UV thread may have queued a
+	// callback for this context just after this frame drained the queues above.
+	CAsyncSocketContext *pDeleteContext;
+	while(g_DeleteQueue.try_dequeue(pDeleteContext))
+	{
+		g_ContextsToDelete.push_back(pDeleteContext);
 	}
 }
 
@@ -173,6 +258,12 @@ void UV_AllocBuffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf)
 	buf->len = suggested_size;
 }
 
+void UV_FreeBuffer(const uv_buf_t *buf)
+{
+	if(buf && buf->base)
+		free(buf->base);
+}
+
 void UV_Quit(uv_async_t *pHandle)
 {
 	uv_close((uv_handle_t *)pHandle, pHandle->close_cb);
@@ -182,25 +273,79 @@ void UV_Quit(uv_async_t *pHandle)
 	uv_stop(g_UV_Loop);
 }
 
+// UV thread only. Drops one in-flight libuv reference on the context and, once the
+// last one is gone and the plugin handle has been destroyed, hands it to the game
+// thread for deletion. The caller must not touch the context after calling this.
+void UV_ReleaseContext(CAsyncSocketContext *pSocketContext)
+{
+	if(--pSocketContext->m_UvRefs > 0)
+		return;
+
+	if(!pSocketContext->m_DeleteRequested)
+		return;
+
+	g_DeleteQueue.enqueue(pSocketContext);
+}
+
+void UV_OnContextHandleClosed(uv_handle_t *handle)
+{
+	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)handle->data;
+	free(handle);
+
+	UV_ReleaseContext(pSocketContext);
+}
+
 void UV_DeleteAsyncContext(uv_async_t *pHandle)
 {
 	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)pHandle->data;
 	uv_close((uv_handle_t *)pHandle, pHandle->close_cb);
 
-	if(pSocketContext->m_pStream)
+	pSocketContext->m_DeleteRequested = true;
+
+	// Hold a reference of our own so the context cannot be handed over while this
+	// function is still working with it.
+	pSocketContext->m_UvRefs++;
+
+	// A DNS lookup is still in flight: this job is queued after the resolve job and
+	// libuv runs async callbacks in creation order, so UV_OnAsyncResolve has already
+	// run and either started the lookup or cleared m_Pending. Whether uv_cancel()
+	// succeeds or not, UV_OnAsyncResolved still runs and releases its reference.
+	if(pSocketContext->m_Pending)
+		uv_cancel((uv_req_t *)&pSocketContext->m_Resolver);
+
+	if(pSocketContext->m_pClientIP)
 	{
-		uv_close((uv_handle_t *)pSocketContext->m_pStream, pSocketContext->m_pStream->close_cb);
-		pSocketContext->m_pStream = NULL;
-		pSocketContext->m_pSocket = NULL;
+		free(pSocketContext->m_pClientIP);
+		pSocketContext->m_pClientIP = NULL;
 	}
 
-	if(pSocketContext->m_pSocket)
+	// For an outgoing connection m_pSocket and m_pStream are the same handle: the
+	// resolver allocates it and UV_OnConnect stores req->handle in m_pStream. Resolve
+	// the aliasing once, up front, so it cannot be closed twice.
+	uv_handle_t *pStream = (uv_handle_t *)pSocketContext->m_pStream;
+	uv_handle_t *pSocket = (uv_handle_t *)pSocketContext->m_pSocket;
+
+	if(pSocket == pStream)
+		pSocket = NULL;
+
+	pSocketContext->m_pStream = NULL;
+	pSocketContext->m_pSocket = NULL;
+
+	if(pStream && !uv_is_closing(pStream))
 	{
-		uv_close((uv_handle_t *)pSocketContext->m_pSocket, pSocketContext->m_pSocket->close_cb);
-		pSocketContext->m_pSocket = NULL;
+		pStream->data = pSocketContext;
+		pSocketContext->m_UvRefs++;
+		uv_close(pStream, UV_OnContextHandleClosed);
 	}
 
-	delete pSocketContext;
+	if(pSocket && !uv_is_closing(pSocket))
+	{
+		pSocket->data = pSocketContext;
+		pSocketContext->m_UvRefs++;
+		uv_close(pSocket, UV_OnContextHandleClosed);
+	}
+
+	UV_ReleaseContext(pSocketContext);
 }
 
 void UV_PushError(CAsyncSocketContext *pSocketContext, int error)
@@ -217,36 +362,54 @@ void UV_PushError(CAsyncSocketContext *pSocketContext, int error)
 void UV_OnRead(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
 {
 	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)client->data;
-	if(pSocketContext->m_Deleted)
+
+	if (!pSocketContext || pSocketContext->m_Deleted)
 	{
-		free(buf->base);
-		uv_close((uv_handle_t *)client, client->close_cb);
-		pSocketContext->m_pStream = NULL;
-		pSocketContext->m_pSocket = NULL;
+		UV_FreeBuffer(buf);
 		return;
 	}
 
-	if(nread < 0)
+	if (nread < 0)
 	{
-		// Connection closed
-		free(buf->base);
-		// But let the client disconnect.
-		//uv_close((uv_handle_t *)client, client->close_cb);
-		//pSocketContext->m_pStream = NULL;
-		//pSocketContext->m_pSocket = NULL;
-
-		UV_PushError(pSocketContext, nread);
+		UV_FreeBuffer(buf);
+		UV_PushError(pSocketContext, (int)nread);
 		return;
 	}
 
-	pSocketContext->m_PendingCallback = true;
+	if (nread == 0)
+	{
+		UV_FreeBuffer(buf);
+		return;
+	}
 
-	char *data = (char *)malloc(sizeof(char) * (nread + 1));
-	data[nread] = 0;
-	strncpy(data, buf->base, nread);
-	free(buf->base);
+	char *data = (char *)malloc((size_t)nread + 1);
+
+	if (!data)
+	{
+		UV_FreeBuffer(buf);
+		return;
+	}
+
+	memcpy(data, buf->base, (size_t)nread);
+	data[nread] = '\0';
+
+	UV_FreeBuffer(buf);
 
 	CSocketData *pData = (CSocketData *)malloc(sizeof(CSocketData));
+
+	if (!pData)
+	{
+		free(data);
+		return;
+	}
+
+	if (pSocketContext->m_Deleted)
+	{
+		free(data);
+		free(pData);
+		return;
+	}
+
 	pData->pSocketContext = pSocketContext;
 	pData->pBuffer = data;
 	pData->BufferSize = nread;
@@ -260,7 +423,6 @@ void UV_OnConnect(uv_connect_t *req, int status)
 	if(pSocketContext->m_Deleted)
 	{
 		free(req);
-		uv_close((uv_handle_t *)req->handle, req->handle->close_cb);
 		return;
 	}
 
@@ -280,6 +442,9 @@ void UV_OnConnect(uv_connect_t *req, int status)
 	CSocketConnect *pConnect = (CSocketConnect *)malloc(sizeof(CSocketConnect));
 	pConnect->pSocketContext = pSocketContext;
 	pConnect->pClientSocket = pSocketContext->m_pStream;
+	pConnect->pClientIP = NULL;
+	// This handle belongs to the context, not to the connect item.
+	pConnect->bAccepted = false;
 	g_ConnectQueue.enqueue(pConnect);
 
 	uv_read_start(pSocketContext->m_pStream, UV_AllocBuffer, UV_OnRead);
@@ -302,14 +467,22 @@ void UV_OnNewConnection(uv_stream_t *server, int status)
 	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)server->data;
 	if(pSocketContext->m_Deleted)
 	{
-		uv_close((uv_handle_t *)server, server->close_cb);
+		// The queued UV_DeleteAsyncContext owns the listening socket, closing it here
+		// would close it twice.
 		return;
 	}
 
 	if(status < 0)
 	{
+		// server is the context's own listening socket and close_cb frees it, so drop
+		// our pointers to it before it goes away.
+		if((uv_stream_t *)pSocketContext->m_pSocket == server)
+			pSocketContext->m_pSocket = NULL;
+
+		if(pSocketContext->m_pStream == server)
+			pSocketContext->m_pStream = NULL;
+
 		uv_close((uv_handle_t *)server, server->close_cb);
-		//uv_close((uv_handle_t *)pSocketContext->m_pSocket, pSocketContext->m_pSocket->close_cb);
 		UV_PushError(pSocketContext, status);
 		return;
 	}
@@ -324,6 +497,28 @@ void UV_OnNewConnection(uv_stream_t *server, int status)
 		CSocketConnect *pConnect = (CSocketConnect *)malloc(sizeof(CSocketConnect));
 		pConnect->pSocketContext = pSocketContext;
 		pConnect->pClientSocket = (uv_stream_t *)pClientSocket;
+		// Nothing owns this handle until the game thread builds a context for it.
+		pConnect->bAccepted = true;
+
+		pConnect->pClientIP = (char *)malloc(MAX_IP_BUFFER_LENGTH);
+		if (pConnect->pClientIP)
+		{
+			pConnect->pClientIP[0] = '\0';
+			struct sockaddr_storage name;
+			int namelen = sizeof(name);
+			if (uv_tcp_getpeername(pClientSocket, (struct sockaddr *)&name, &namelen) == 0) 
+			{
+				if (name.ss_family == AF_INET) 
+				{
+					uv_ip4_name((const struct sockaddr_in *)&name, pConnect->pClientIP, MAX_IP_BUFFER_LENGTH);
+				} 
+				else if (name.ss_family == AF_INET6) 
+				{
+					uv_ip6_name((const struct sockaddr_in6 *)&name, pConnect->pClientIP, MAX_IP_BUFFER_LENGTH);
+				}
+			}
+		}
+
 		g_ConnectQueue.enqueue(pConnect);
 	}
 	else
@@ -334,21 +529,22 @@ void UV_OnNewConnection(uv_stream_t *server, int status)
 
 void UV_OnAsyncResolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo *res)
 {
-	if(resolver->service != NULL)
-		free(resolver->service);
-
 	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)resolver->data;
-	if(pSocketContext->m_Deleted || pSocketContext->m_pSocket)
-	{
-		uv_freeaddrinfo(res);
-		return;
-	}
+	pSocketContext->m_Pending = false;
 
-	if(status < 0)
+	// The lookup failed, was cancelled by UV_DeleteAsyncContext, or the plugin handle
+	// is gone and there is nothing left to connect. Note that uv_cancel() fails when
+	// the lookup is already running, so a cancelled teardown can still land here with
+	// any status.
+	if(status < 0 || pSocketContext->m_Deleted || pSocketContext->m_pSocket)
 	{
-		pSocketContext->m_Pending = false;
-		uv_freeaddrinfo(res);
-		UV_PushError(pSocketContext, status);
+		if(res)
+			uv_freeaddrinfo(res);
+
+		if(status < 0 && status != UV_ECANCELED && !pSocketContext->m_Deleted)
+			UV_PushError(pSocketContext, status);
+
+		UV_ReleaseContext(pSocketContext);
 		return;
 	}
 
@@ -358,17 +554,25 @@ void UV_OnAsyncResolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo 
 	pSocket->data = pSocketContext;
 
 	pSocketContext->m_pSocket = pSocket;
-	pSocketContext->m_Pending = false;
 
 	if(pSocketContext->m_Server)
 	{
-		uv_tcp_bind(pSocket, (const struct sockaddr *)res->ai_addr, 0);
+		int bind_err = uv_tcp_bind(pSocket, (const struct sockaddr *)res->ai_addr, 0);
+		if(bind_err)
+		{
+			pSocketContext->m_pSocket = NULL;
+			uv_close((uv_handle_t *)pSocket, pSocket->close_cb);
+			UV_PushError(pSocketContext, bind_err);
+			uv_freeaddrinfo(res);
+			UV_ReleaseContext(pSocketContext);
+			return;
+		}
 
 		int err = uv_listen((uv_stream_t *)pSocket, 32, UV_OnNewConnection);
 		if(err)
 		{
-			uv_close((uv_handle_t *)pSocket, pSocket->close_cb);
 			pSocketContext->m_pSocket = NULL;
+			uv_close((uv_handle_t *)pSocket, pSocket->close_cb);
 			UV_PushError(pSocketContext, err);
 		}
 	}
@@ -381,6 +585,8 @@ void UV_OnAsyncResolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo 
 	}
 
 	uv_freeaddrinfo(res);
+
+	UV_ReleaseContext(pSocketContext);
 }
 
 void UV_OnAsyncResolve(uv_async_t *pHandle)
@@ -389,25 +595,37 @@ void UV_OnAsyncResolve(uv_async_t *pHandle)
 	uv_close((uv_handle_t *)pHandle, pHandle->close_cb);
 
 	if(pSocketContext->m_Deleted || pSocketContext->m_pSocket)
+	{
+		// No lookup will be started, so nothing will ever clear this for us. Leaving it
+		// set would make the teardown wait forever on a request that never ran.
+		pSocketContext->m_Pending = false;
 		return;
+	}
 
 	pSocketContext->m_Resolver.data = pSocketContext;
 
-	char *service = (char *)malloc(8);
-	sprintf(service, "%d", pSocketContext->m_Port);
+	char service[16];
+	snprintf(service, sizeof(service), "%d", pSocketContext->m_Port);
 
 	struct addrinfo hints;
+	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = PF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
 	hints.ai_flags = 0;
 
+	// The lookup holds a reference until UV_OnAsyncResolved runs.
+	pSocketContext->m_UvRefs++;
+
 	int err = uv_getaddrinfo(g_UV_Loop, &pSocketContext->m_Resolver, UV_OnAsyncResolved, pSocketContext->m_pHost, service, &hints);
 	if(err)
 	{
-		if(service != NULL)
-			free(service);
+		// No callback will ever run for this request, so release it here. Leaving
+		// m_Pending set would make the teardown wait forever on a request that is not
+		// running, and would keep the natives rejecting this socket as pending.
+		pSocketContext->m_Pending = false;
 		UV_PushError(pSocketContext, err);
+		UV_ReleaseContext(pSocketContext);
 	}
 }
 
@@ -599,6 +817,21 @@ cell_t Native_AsyncSocket_SetDataCallback(IPluginContext *pContext, const cell_t
 	return true;
 }
 
+cell_t Native_AsyncSocket_GetClientIP(IPluginContext *pContext, const cell_t *params)
+{
+	CAsyncSocketContext *pSocketContext = g_AsyncSocket.GetSocketInstanceByHandle(params[1]);
+
+	if (pSocketContext == NULL)
+	{
+		return pContext->ThrowNativeError("Invalid socket handle");
+	}
+
+	const char *ip = (pSocketContext->m_pClientIP != NULL) ? pSocketContext->m_pClientIP : "";
+	pContext->StringToLocal(params[2], params[3], ip);
+
+	return 1;
+}
+
 // Sourcemod Plugin Events
 bool AsyncSocket::SDK_OnLoad(char *error, size_t maxlength, bool late)
 {
@@ -622,14 +855,58 @@ bool AsyncSocket::SDK_OnLoad(char *error, size_t maxlength, bool late)
 
 void UV_OnWalk(uv_handle_t *pHandle, void *pArg)
 {
+	if(uv_is_closing(pHandle))
+		return;
+
 	uv_close(pHandle, pHandle->close_cb);
+}
+
+// Drops everything still queued once the loop is gone. Nothing may run plugin
+// callbacks at this point, the payloads just need to be released.
+void UV_DrainQueues()
+{
+	CSocketConnect *pConnect;
+	while(g_ConnectQueue.try_dequeue(pConnect))
+	{
+		if(pConnect->pClientIP)
+			free(pConnect->pClientIP);
+
+		free(pConnect);
+	}
+
+	CSocketData *pData;
+	while(g_DataQueue.try_dequeue(pData))
+	{
+		free(pData->pBuffer);
+		free(pData);
+	}
+
+	CSocketError *pError;
+	while(g_ErrorQueue.try_dequeue(pError))
+	{
+		free(pError);
+	}
+
+	CAsyncSocketContext *pSocketContext;
+	while(g_DeleteQueue.try_dequeue(pSocketContext))
+	{
+		g_ContextsToDelete.push_back(pSocketContext);
+	}
+
+	for(size_t i = 0; i < g_ContextsToDelete.size(); i++)
+	{
+		delete g_ContextsToDelete[i];
+	}
+	g_ContextsToDelete.clear();
 }
 
 void AsyncSocket::SDK_OnUnload()
 {
 	g_Running = false;
-	handlesys->RemoveType(socketHandleType, myself->GetIdentity());
 
+	// Stop the event loop before destroying anything: OnHandleDestroy deletes contexts
+	// inline once g_Running is false, which is only safe when the UV thread can no
+	// longer touch them.
 	CAsyncAddJob Job;
 	Job.CallbackFn = UV_Quit;
 	Job.pData = NULL;
@@ -645,7 +922,11 @@ void AsyncSocket::SDK_OnUnload()
 
 	uv_loop_close(g_UV_Loop);
 
+	handlesys->RemoveType(socketHandleType, myself->GetIdentity());
+
 	smutils->RemoveGameFrameHook(OnGameFrame);
+
+	UV_DrainQueues();
 }
 
 const sp_nativeinfo_t AsyncSocketNatives[] = {
@@ -656,5 +937,6 @@ const sp_nativeinfo_t AsyncSocketNatives[] = {
 	{"AsyncSocket.SetConnectCallback", Native_AsyncSocket_SetConnectCallback},
 	{"AsyncSocket.SetErrorCallback", Native_AsyncSocket_SetErrorCallback},
 	{"AsyncSocket.SetDataCallback", Native_AsyncSocket_SetDataCallback},
+	{"AsyncSocket.GetClientIP", Native_AsyncSocket_GetClientIP},
 	{NULL, NULL}
 };
