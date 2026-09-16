@@ -31,7 +31,12 @@ public:
 	uv_tcp_t *m_pSocket;
 	uv_stream_t *m_pStream;
 
-	int m_PendingCloseCount;
+	// UV thread only. Number of libuv operations still holding this context (each
+	// handle being closed, plus an in-flight address lookup), and whether the plugin
+	// handle is gone. The context is handed to the game thread for deletion once the
+	// handle is destroyed and the last reference is released.
+	int m_UvRefs;
+	bool m_DeleteRequested;
 
 	CAsyncSocketContext(IPluginContext *plugin);
 	~CAsyncSocketContext();
