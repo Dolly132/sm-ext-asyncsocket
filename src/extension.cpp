@@ -93,6 +93,13 @@ void AsyncSocket::OnHandleDestroy(HandleType_t type, void *object)
 	}
 }
 
+void UV_CloseOrphanedClient(uv_async_t *pHandle)
+{
+    uv_handle_t *handle = (uv_handle_t *)pHandle->data;
+    uv_close(handle, UV_FreeHandle);
+    uv_close((uv_handle_t *)pHandle, pHandle->close_cb);
+}
+
 void OnGameFrame(bool simulating)
 {
 	CSocketConnect *pConnect;
@@ -149,7 +156,16 @@ void OnGameFrame(bool simulating)
 			// If the parent socket was deleted while connecting, clean up the orphaned client socket
 			if(pConnect->pClientSocket)
 			{
-				uv_close((uv_handle_t *)pConnect->pClientSocket, UV_FreeHandle);
+				CAsyncAddJob Job;
+				Job.CallbackFn = UV_CloseOrphanedClient;
+				Job.pData = pConnect->pClientSocket;
+				g_AsyncAddQueue.enqueue(Job);
+				uv_async_send(&g_UV_AsyncAdded);
+			}
+
+			if(pConnect->pClientIP)
+			{
+				free(pConnect->pClientIP);
 			}
 		}
 
@@ -235,6 +251,13 @@ void UV_DeleteAsyncContext(uv_async_t *pHandle)
 {
 	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)pHandle->data;
 	uv_close((uv_handle_t *)pHandle, pHandle->close_cb);
+
+	// If somehow the m_pSocket and m_pStream are NULL, and the socket context is pending, then cancel it.
+	if (pSocketContext->m_Pending)
+	{
+		uv_cancel((uv_req_t *)&pSocketContext->m_Resolver);
+		return;
+	}
 
 	if (pSocketContext->m_pClientIP)
 	{
@@ -361,7 +384,6 @@ void UV_OnConnect(uv_connect_t *req, int status)
 	if(pSocketContext->m_Deleted)
 	{
 		free(req);
-		uv_close((uv_handle_t *)req->handle, req->handle->close_cb);
 		return;
 	}
 
@@ -456,19 +478,35 @@ void UV_OnNewConnection(uv_stream_t *server, int status)
 void UV_OnAsyncResolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo *res)
 {
 	CAsyncSocketContext *pSocketContext = (CAsyncSocketContext *)resolver->data;
-	if(pSocketContext->m_Deleted || pSocketContext->m_pSocket)
+	pSocketContext->m_Pending = false;
+
+	if (status == UV_ECANCELED)
 	{
 		if (res)
 			uv_freeaddrinfo(res);
+
+		if (pSocketContext->m_Deleted)
+		{
+			delete pSocketContext;
+		}
 		return;
 	}
 
 	if(status < 0)
 	{
-		pSocketContext->m_Pending = false;
 		if (res)
 			uv_freeaddrinfo(res);
+		
 		UV_PushError(pSocketContext, status);
+		return;
+	}
+
+	if(pSocketContext->m_Deleted || pSocketContext->m_pSocket)
+	{
+		if (res)
+			uv_freeaddrinfo(res);
+		if (pSocketContext->m_Deleted)
+			delete pSocketContext;
 		return;
 	}
 

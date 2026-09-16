@@ -1,6 +1,7 @@
 #ifndef ASYNC_SOCKET_CONTEXT_H
 #define ASYNC_SOCKET_CONTEXT_H
 
+#include <atomic>
 #include <stdlib.h>
 #include <uv.h>
 
@@ -12,7 +13,7 @@ public:
 	IPluginContext *m_pContext;
 	Handle_t m_Handle;
 
-	bool m_Deleted;
+	std::atomic<bool> m_Deleted{false};
 	bool m_PendingCallback;
 	bool m_Pending;
 	bool m_Server;
