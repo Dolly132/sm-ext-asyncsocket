@@ -8,6 +8,8 @@ CAsyncSocketContext::CAsyncSocketContext(IPluginContext *pContext)
 	m_pHost = NULL;
 	m_Port = -1;
 
+	m_pClientIP = NULL;
+
 	m_Deleted = false;
 	m_PendingCallback = false;
 	m_Pending = false;
@@ -19,12 +21,20 @@ CAsyncSocketContext::CAsyncSocketContext(IPluginContext *pContext)
 	m_pConnectCallback = NULL;
 	m_pErrorCallback = NULL;
 	m_pDataCallback = NULL;
+
+	m_UvRefs = 0;
+	m_DeleteRequested = false;
+
+	memset(&m_Resolver, 0, sizeof(m_Resolver));
 }
 
 CAsyncSocketContext::~CAsyncSocketContext()
 {
 	if(m_pHost)
 		free(m_pHost);
+
+	if(m_pClientIP)
+		free(m_pClientIP);
 
 	if(m_pConnectCallback)
 		forwards->ReleaseForward(m_pConnectCallback);
