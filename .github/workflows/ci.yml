@@ -94,7 +94,7 @@ jobs:
           retention-days: 1
 
   build-release-extension:
-    uses: Dolly132/ci-workflows/.github/workflows/shared_build_release_am_extension.yml@main
+    uses: Dolly132/ci-workflows/.github/workflows/shared_build_release_am_extension.yml@update-clang
     needs: [build-libuv-linux, build-libuv-windows]
     with:
       sdks: "css"
