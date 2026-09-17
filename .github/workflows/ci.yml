@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - main
+      - windows-fix
     tags:
       - "*"
   pull_request:
