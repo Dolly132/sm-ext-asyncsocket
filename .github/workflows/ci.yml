@@ -19,9 +19,6 @@ jobs:
     strategy:
       matrix:
         arch: [x86, x64]
-    env:
-      CC: "clang-14"
-      CXX: "clang++-14"
     steps:
       - name: Checkout repository with submodules
         uses: actions/checkout@v7
@@ -36,14 +33,14 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             gcc-multilib g++-multilib libstdc++6 lib32stdc++6 \
             libc6-dev libc6-dev-i386 linux-libc-dev \
-            linux-libc-dev:i386 lib32z1-dev ${{ env.CC }}
+            linux-libc-dev:i386 lib32z1-dev clang
 
       - name: Install Linux dependencies (x64)
         if: matrix.arch == 'x64'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential libtool autoconf automake ${{ env.CC }}
+            build-essential libtool autoconf automake clang
 
       - name: Build and install libuv (Linux ${{ matrix.arch }})
         working-directory: libuv
